@@ -62,7 +62,7 @@ and pass them individually to every call site.  Demonstrated and fixed in
 
 ## Findings
 
-### Finding A — `channels_api.py:146` — bare `raise ValueError` produces HTTP 500
+### Finding A — `channels_api.py:146` — bare `raise ValueError` produces HTTP 500 ([#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441))
 
 **Source**: `api/channels_api.py:146`
 
@@ -94,7 +94,7 @@ in BlockPool instead of a clean ValueError).
 
 ---
 
-### Finding B — `features_api.py:117` — `?num=0` silent-acceptance
+### Finding B — `features_api.py:117` — `?num=0` silent-acceptance ([#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442))
 
 **Source**: `api/features_api.py:117`, `framework/basehandlers.py:182`
 
@@ -121,7 +121,7 @@ after the `get_int_arg` call, or tighten `get_int_arg` with a `> 0` guard.
 
 ---
 
-### Finding C — `channels_api.py:138` — `?start=0` milestone 0 accepted
+### Finding C — `channels_api.py:138` — `?start=0` milestone 0 accepted ([#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443))
 
 **Source**: `api/channels_api.py:138`
 

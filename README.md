@@ -23,13 +23,13 @@ with 0 failures.
 **Three live API-validation findings** confirmed by ESBMC counterexamples
 and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)):
 
-| Finding | Source | Admitted value | Downstream effect |
-|---|---|---|---|
-| A | `api/channels_api.py:146` | `?start > ?end` | Bare `raise ValueError` → Flask returns **HTTP 500** instead of HTTP 400 |
-| B | `api/features_api.py:117` | `?num=0` | `get_int_arg` admits 0 → **silent empty page** (HTTP 200, no error signal) |
-| C | `api/channels_api.py:138` | `?start=0` / `?end=0` | Milestone 0 accepted → **null dates** returned (HTTP 200, no error signal) |
+| Finding | Source | Admitted value | Downstream effect | Issue |
+|---|---|---|---|---|
+| A | `api/channels_api.py:146` | `?start > ?end` | Bare `raise ValueError` → Flask returns **HTTP 500** instead of HTTP 400 | [#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441) |
+| B | `api/features_api.py:117` | `?num=0` | `get_int_arg` admits 0 → **silent empty page** (HTTP 200, no error signal) | [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442) |
+| C | `api/channels_api.py:138` | `?start=0` / `?end=0` | Milestone 0 accepted → **null dates** returned (HTTP 200, no error signal) | [#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443) |
 
-**Worked example — Finding B (`?num=0` silent-acceptance).**
+**Worked example — Finding B (`?num=0` silent-acceptance, [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442)).**
 `GET /api/v0/features?num=0` is a reasonable user mistake (or a fuzzer
 input), but `basehandlers.get_int_arg` only rejects negative values
 (`if num < 0: self.abort(400, ...)`); zero is admitted.
@@ -44,7 +44,7 @@ after the `get_int_arg` call, mirroring the already-present negative guard.
 Same silent-acceptance pattern as vLLM Findings #5 and #6
 (`--max-logprobs <negative>`, `--long-prefill-token-threshold <negative>`).
 
-**Finding A — bare `raise ValueError` (HTTP 500 not 400).**
+**Finding A — bare `raise ValueError` (HTTP 500 not 400, [#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441)).**
 `api/channels_api.py:146` raises `ValueError` directly when
 `?start > ?end`, but `APIHandler.get()` has no `except ValueError` wrapper,
 so the bare raise propagates to Flask and produces an **HTTP 500 Internal
@@ -55,6 +55,15 @@ Proposed fix: replace `raise ValueError` with
 `self.abort(400, msg='start must be <= end')`.
 Same class as vLLM Finding #4 (bare `AssertionError` in `BlockPool.__init__`
 instead of a clean `ValueError`).
+
+**Finding C — milestone 0 accepted, null dates returned ([#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443)).**
+`api/channels_api.py:138–139` reads `?start` and `?end` through the same
+`get_int_arg` that passes zero for Finding B. With `start=end=0` the
+`start > end` guard (line 146) does not fire; `fetch_chrome_release_info(0)`
+is called for a milestone that does not exist, and the server returns
+`{"0": {"stable_date": null, …}}` with HTTP 200. Chrome milestone numbers
+are 1-based; milestone 0 has no schedule data.
+Proposed fix: add `if start < 1 or end < 1: self.abort(400, msg='milestone must be >= 1')`.
 
 **ESBMC-Python pitfall discovered.** `nondet_bool()` inside a list
 comprehension (`[nondet_bool() for _ in range(N)]`) produces a fresh
