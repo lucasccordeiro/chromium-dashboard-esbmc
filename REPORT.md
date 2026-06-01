@@ -25,6 +25,7 @@ Verifier: ESBMC 8.3.0+.
 | `channels_start_gt_end_bare_valueerror` | `channels_start_gt_end_bare_valueerror.py` | **FAILED** | 2 | skipped | — | **Finding A — live bug** |
 | `features_num_zero_silent_acceptance` | `features_num_zero_silent_acceptance.py` | **FAILED** | 1 | skipped | — | **Finding B — live bug** |
 | `channels_milestone_zero_silent_acceptance` | `channels_milestone_zero_silent_acceptance.py` | **FAILED** | 1 | skipped | — | **Finding C — live bug** |
+| `votes_state_zero_validator_bypass` | `votes_state_zero_validator_bypass.py` | **FAILED** | 1 | skipped | — | **Finding D — live bug** |
 | `is_privacy_eligible` | `is_privacy_eligible.py` | SUCCESSFUL | 4 | SUCCESSFUL | 4 | |
 | `is_privacy_eligible_buggy` | `is_privacy_eligible_buggy.py` | FAILED | 1 | skipped | — | explanation check dropped |
 | `is_testing_eligible` | `is_testing_eligible.py` | SUCCESSFUL | 7 | SUCCESSFUL | 7 | |
@@ -44,8 +45,8 @@ Verifier: ESBMC 8.3.0+.
 | `milestone_skip_round_trip` | `milestone_skip_round_trip.py` | SUCCESSFUL | 2 | SUCCESSFUL | 6 | |
 | `milestone_skip_round_trip_buggy` | `milestone_skip_round_trip_buggy.py` | FAILED | 1 | skipped | — | `next` jumps to 84 instead of 83 |
 
-**Total targets: 31 (14 SUCCESSFUL + 17 FAILED, of which 3 FAILED are the live-bug
-findings A/B/C). Every target matches its expected verdict; 0 deviations.**
+**Total targets: 32 (14 SUCCESSFUL + 18 FAILED, of which 4 FAILED are the live-bug
+findings A/B/C/D). Every target matches its expected verdict; 0 deviations.**
 
 ---
 
@@ -162,3 +163,44 @@ after the args are parsed.
 
 **Severity**: silent-acceptance defect — same class as vLLM Finding #3
 (`--max-model-len 0` propagating to the scheduler).
+
+---
+
+### Finding D — `reviews_api.py` `VotesAPI.do_post` — `state=0`/`false` bypasses `Vote.is_valid_state` (not yet filed)
+
+**Source**: `api/reviews_api.py` (`VotesAPI.do_post`),
+`framework/basehandlers.py` (`get_param`, `get_int_param`)
+
+```python
+new_state = self.get_int_param('state', validator=Vote.is_valid_state)
+```
+
+Both `get_param` (`if val and validator and not validator(val)`) and
+`get_int_param` (`if val and type(val) != int`) guard validation with a
+`val and ...` short-circuit.  A falsy `state` (JSON `0` or `false`) skips
+both the `Vote.is_valid_state` validator and the int type check.
+`is_valid_state(0)` is False (valid states are `1..11`), yet `0` is accepted
+and recorded as a vote state.
+
+**ESBMC counterexample** (`votes_state_zero_validator_bypass.py`,
+Phase 1 FAILED, 1 VCC):
+
+```
+Violated property:
+  file votes_state_zero_validator_bypass.py
+  assertion is_valid_state(state)
+
+  state = 0  (validator short-circuited by `val and ...`; accepted)
+```
+
+Confirmed empirically under CPython
+(`reproducer/finding_d_state_validator_bypass.py`): `state=0` and `state=false`
+are accepted, while the non-falsy invalid `state=99` is correctly rejected.
+
+**Proposed fix**: test presence rather than truthiness —
+`if val is not None and validator and not validator(val):` in `get_param`
+and `if val is not None and type(val) != int:` in `get_int_param`
+(the `allowed` guard in `get_param` has the same flaw).
+
+**Severity**: silent-acceptance / validation-bypass defect — same class as
+Findings A/B/C and vLLM Finding #3.
