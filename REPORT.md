@@ -44,18 +44,27 @@ Verifier: ESBMC 8.3.0+.
 
 ## ESBMC-Python pitfalls encountered
 
-### List comprehension / nondet_bool
+### List comprehension / nondet_bool ([esbmc/esbmc#5022](https://github.com/esbmc/esbmc/issues/5022))
 
-`[nondet_bool() for _ in range(N)]` creates a list, but each access to
-`ans[i]` in ESBMC-Python produces a fresh nondet variable rather than
-returning the stored element.  When the same list is passed to two
-separate function calls (`is_eligible(gate_type, ans)` and then
-`is_privacy_eligible(ans)`), the two calls see independent nondet draws —
-the assertion `result == predicate(ans)` becomes a comparison of
-independent symbolic values and trivially fails.
+`[nondet_bool() for _ in range(N)]` creates a list, but ESBMC-Python does not
+stably store the comprehension's elements: reading `ans[i]` through a
+function-parameter alias re-materialises a fresh nondet variable rather than
+returning the stored element.  When the same list is passed to two separate
+function calls (`is_eligible(gate_type, ans)` and then
+`is_privacy_eligible(ans)`), the two calls see independent nondet draws — the
+assertion `result == predicate(ans)` becomes a comparison of independent
+symbolic values.
 
-**Fix**: use explicit scalar variables (`expl = nondet_bool()`, `lang = nondet_bool()`, ...)
-and pass them individually to every call site.  Demonstrated and fixed in
+**Symptom: spurious `VERIFICATION FAILED` (a false alarm), not a false
+SUCCESSFUL.** Even the tautology `p(ans) == p(ans)` for a pure `p` is reported
+FAILED.  The trigger is specifically the comprehension: swapping it for an
+equivalent literal (`[nondet_bool(), nondet_bool()]`) verifies SUCCESSFUL.
+Reproduced under both Bitwuzla and Z3 on ESBMC 8.3.0 / master `b259f8a`; minimal
+case in [`reproducer/esbmc_list_comprehension_divergence.py`](./reproducer/esbmc_list_comprehension_divergence.py).
+Distinct from the closed #3836 (spurious out-of-bounds, fixed by #3839).
+
+**Workaround**: use explicit scalar variables (`expl = nondet_bool()`, `lang = nondet_bool()`, ...)
+and pass them individually to every call site.  Demonstrated in
 `is_eligible_dispatch.py` and `is_eligible_dispatch_buggy.py`.
 
 ---
