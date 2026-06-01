@@ -50,7 +50,8 @@ propagates to Flask as **HTTP 500**.
 
 So the invalid value is *not* recorded — the `set_vote` guard backstops it — but
 the caller receives a 500 instead of a 400. This is the same bare-raise → 500
-mechanism as Finding A (`channels_api.py`).
+mechanism as the `ChannelsAPI` `start > end` defect reported in
+[#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441).
 
 **To Reproduce**
 
@@ -128,7 +129,8 @@ run for every present value, not only truthy ones.
   (`get_param`'s `allowed` guard on line 126 has the same `val and ...` flaw.)
 - Defense-in-depth: `set_vote` should `self.abort(400, ...)` (or callers should
   catch `ValueError`) rather than letting a bare `ValueError` become an HTTP 500
-  — same remediation as Finding A.
+  — same remediation as
+  [#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441).
 - Found by [ESBMC](https://github.com/esbmc/esbmc) v8.3.0 bounded model
   checking on a symbolic harness
   (`harness/votes_state_zero_validator_bypass.py`), which models the
