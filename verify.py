@@ -149,6 +149,18 @@ TARGETS: list[Target] = [
         expected="FAILED",
         safety_expected=None,
     ),
+    Target(
+        # Finding D: reviews_api.py VotesAPI.do_post
+        # new_state = get_int_param('state', validator=Vote.is_valid_state).
+        # Both get_param's `if val and validator ...` and get_int_param's
+        # `if val and type(val) != int` short-circuit on the falsy value 0, so
+        # Vote.is_valid_state(0) is never consulted; invalid state 0 is accepted.
+        # Contract: an accepted state must be valid; assertion fails at state=0.
+        name="votes_state_zero_validator_bypass",
+        entry="votes_state_zero_validator_bypass.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
 
     # --- Tier 3: self-certify logic contracts ---
 
