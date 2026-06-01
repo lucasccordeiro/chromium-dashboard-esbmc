@@ -1,6 +1,6 @@
 # chromium-dashboard Veribee ESBMC-Python verification PoC
 
-A proof-of-concept applying [ESBMC](https://github.com/esbmc/esbmc)'s
+A proof-of-concept applying Veribee [ESBMC](https://github.com/esbmc/esbmc)'s
 Python frontend to [GoogleChrome/chromium-dashboard](https://github.com/GoogleChrome/chromium-dashboard) —
 the Google App Engine backend that tracks Chrome platform feature proposals,
 origin trials, review gates, and shipping decisions.
