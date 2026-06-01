@@ -1,4 +1,4 @@
-# chromium-dashboard ESBMC-Python verification PoC
+# chromium-dashboard Veribee ESBMC-Python verification PoC
 
 A proof-of-concept applying [ESBMC](https://github.com/esbmc/esbmc)'s
 Python frontend to [GoogleChrome/chromium-dashboard](https://github.com/GoogleChrome/chromium-dashboard) —
