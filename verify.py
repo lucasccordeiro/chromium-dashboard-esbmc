@@ -222,6 +222,20 @@ TARGETS: list[Target] = [
         safety_expected=None,
     ),
     Target(
+        # record_vote changed-flag invariant: `changed` is True iff at least
+        # one gate field was mutated, and never toggles True -> False.
+        name="record_vote_changed_flag",
+        entry="record_vote_changed_flag.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
+    Target(
+        name="record_vote_changed_flag_buggy",
+        entry="record_vote_changed_flag_buggy.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+    Target(
         # Overdue detection arithmetic:
         # remaining == -1  <->  newly overdue (1 weekday past deadline)
         # remaining == -slo_limit  <->  long overdue
