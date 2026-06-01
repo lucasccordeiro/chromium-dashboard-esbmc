@@ -11,16 +11,18 @@ Modelled on the
 
 ## Status
 
-**26 verification targets** across four tiers — pure date/integer arithmetic
+**32 verification targets** across five tiers — pure date/integer arithmetic
 helpers (`is_weekday`, `weekdays_between`, `remaining_days`, `diff_days`,
 `diff_weeks`), HTTP API input-validation paths, self-certify boolean
 contracts (`is_privacy_eligible`, `is_testing_eligible`,
-`is_adoption_eligible`, `is_eligible`), and SLO gate state-machine
-invariants (`record_vote` index safety, overdue-detection arithmetic).
-`make verify` (26 entries × two phases) completes in under 30 seconds
+`is_adoption_eligible`, `is_eligible`), SLO gate state-machine invariants
+(`record_vote` index safety, `record_vote` changed-flag, `record_comment`
+idempotency, overdue-detection arithmetic), and milestone arithmetic
+(`get_next_release_number`/`get_previous_release_number` round-trip).
+`make verify` (two phases per target) completes in under 30 seconds
 with 0 failures.
 
-**Three live API-validation findings** confirmed by ESBMC counterexamples
+**Four live API-validation findings** confirmed by ESBMC counterexamples
 and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)):
 
 | Finding | Source | Admitted value | Downstream effect | Issue |
@@ -28,6 +30,7 @@ and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)):
 | A | `api/channels_api.py:146` | `?start > ?end` | Bare `raise ValueError` → Flask returns **HTTP 500** instead of HTTP 400 | [#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441) |
 | B | `api/features_api.py:117` | `?num=0` | `get_int_arg` admits 0 → **silent empty page** (HTTP 200, no error signal) | [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442) |
 | C | `api/channels_api.py:138` | `?start=0` / `?end=0` | Milestone 0 accepted → **null dates** returned (HTTP 200, no error signal) | [#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443) |
+| D | `api/reviews_api.py:78` | `{"state": 0}` / `false` | Falsy value skips `Vote.is_valid_state` (`get_param`/`get_int_param` `val and …` short-circuit) → `set_vote` bare `ValueError` → **HTTP 500** instead of HTTP 400 | [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447) |
 
 **Worked example — Finding B (`?num=0` silent-acceptance, [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442)).**
 `GET /api/v0/features?num=0` is a reasonable user mistake (or a fuzzer
@@ -64,6 +67,21 @@ is called for a milestone that does not exist, and the server returns
 `{"0": {"stable_date": null, …}}` with HTTP 200. Chrome milestone numbers
 are 1-based; milestone 0 has no schedule data.
 Proposed fix: add `if start < 1 or end < 1: self.abort(400, msg='milestone must be >= 1')`.
+
+**Finding D — falsy `state` validator bypass (HTTP 500 not 400, [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447)).**
+`api/reviews_api.py:78` (`VotesAPI.do_post`) reads
+`get_int_param('state', validator=Vote.is_valid_state)`, but both `get_param`
+(`if val and validator …`) and `get_int_param` (`if val and type(val) != int`)
+short-circuit on falsy values, so a JSON `state` of `0` or `false` skips both
+the validator and the int type check. The invalid value is *not* recorded —
+`approval_defs.set_vote` re-checks and raises a **bare** `ValueError`, which
+(no `except ValueError` in `APIHandler.post`) surfaces as **HTTP 500** rather
+than HTTP 400. The `harness/votes_state_zero_validator_bypass.py` counterexample
+pins the helper bypass (`assertion is_valid_state(state)` violated at
+`state = 0`); only an authenticated approver reaches `set_vote`. Same bare-raise
+→ 500 mechanism as Finding A ([#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441)).
+Proposed fix: test `val is not None` instead of `val` in the `get_param`/
+`get_int_param` guards; `set_vote` should `self.abort(400, …)` not bare-raise.
 
 **ESBMC-Python bug encountered and fixed upstream.**
 `nondet_bool()` inside a list comprehension produced a fresh symbolic

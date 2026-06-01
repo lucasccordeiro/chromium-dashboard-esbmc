@@ -166,7 +166,7 @@ after the args are parsed.
 
 ---
 
-### Finding D — `reviews_api.py:78` `VotesAPI.do_post` — falsy `state` (0/false) → HTTP 500 via bypassed validation + bare `ValueError` (not yet filed)
+### Finding D — `reviews_api.py:78` `VotesAPI.do_post` — falsy `state` (0/false) → HTTP 500 via bypassed validation + bare `ValueError` ([#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447))
 
 **Source**: `api/reviews_api.py:78` (`VotesAPI.do_post`),
 `framework/basehandlers.py:124,141` (`get_param`, `get_int_param`),
