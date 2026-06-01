@@ -236,6 +236,21 @@ TARGETS: list[Target] = [
         safety_expected=None,
     ),
     Target(
+        # record_comment idempotency: records the initial response time once.
+        # True iff requested_on set, responded_on unset, and caller is approver;
+        # responded_on written iff True; a True call makes the next call False.
+        name="record_comment_idempotent",
+        entry="record_comment_idempotent.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
+    Target(
+        name="record_comment_idempotent_buggy",
+        entry="record_comment_idempotent_buggy.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+    Target(
         # Overdue detection arithmetic:
         # remaining == -1  <->  newly overdue (1 weekday past deadline)
         # remaining == -slo_limit  <->  long overdue

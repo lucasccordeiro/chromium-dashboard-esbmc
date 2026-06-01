@@ -37,12 +37,14 @@ Verifier: ESBMC 8.3.0+.
 | `record_vote_index_safety_buggy` | `record_vote_index_safety_buggy.py` | FAILED | 1 | skipped | — | empty-votes guard dropped |
 | `record_vote_changed_flag` | `record_vote_changed_flag.py` | SUCCESSFUL | 1 | SUCCESSFUL | 6 | `changed` ⇔ ≥1 field mutated; monotone |
 | `record_vote_changed_flag_buggy` | `record_vote_changed_flag_buggy.py` | FAILED | 1 | skipped | — | spurious `changed = False` reset in resolved branch |
+| `record_comment_idempotent` | `record_comment_idempotent.py` | SUCCESSFUL | 3 | SUCCESSFUL | 3 | initial response recorded once; write-iff-true; idempotent |
+| `record_comment_idempotent_buggy` | `record_comment_idempotent_buggy.py` | FAILED | 1 | skipped | — | `responded_on is not None` guard dropped → re-records |
 | `overdue_detection` | `overdue_detection.py` | SUCCESSFUL | 3 | SUCCESSFUL | 10 | |
 | `overdue_detection_buggy` | `overdue_detection_buggy.py` | FAILED | 1 | skipped | — | `<= -1` instead of `== -1` |
 | `milestone_skip_round_trip` | `milestone_skip_round_trip.py` | SUCCESSFUL | 2 | SUCCESSFUL | 6 | |
 | `milestone_skip_round_trip_buggy` | `milestone_skip_round_trip_buggy.py` | FAILED | 1 | skipped | — | `next` jumps to 84 instead of 83 |
 
-**Total targets: 29 (13 SUCCESSFUL + 16 FAILED, of which 3 FAILED are the live-bug
+**Total targets: 31 (14 SUCCESSFUL + 17 FAILED, of which 3 FAILED are the live-bug
 findings A/B/C). Every target matches its expected verdict; 0 deviations.**
 
 ---

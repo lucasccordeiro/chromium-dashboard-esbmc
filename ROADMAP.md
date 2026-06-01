@@ -66,7 +66,7 @@ range that real callers would supply.
 | Tier 1 — pure arithmetic | `is_weekday`, `weekdays_between_approx`, `weekdays_between_loop`, `remaining_days`, `diff_days_and_weeks` (5 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. One harness fix required during run: loop-buggy mutation changed from "drop cap" (structurally undetectable at `calendar_days ≤ 30`) to "init counter=1" (caught at `calendar_days=0`). |
 | Tier 2 — API validation | `channels_start_gt_end_bare_valueerror`, `features_num_zero_silent_acceptance`, `channels_milestone_zero_silent_acceptance` | All Phase 1 FAILED as expected — counterexamples are the defect witnesses. Three live bugs confirmed; see REPORT.md Findings A/B/C. |
 | Tier 3 — self-certify contracts | `is_privacy_eligible`, `is_testing_eligible`, `is_adoption_eligible`, `is_eligible_dispatch` (4 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Dispatch harness originally required scalar-arg workaround for esbmc/esbmc#5022; restored to list comprehension after upstream fix in esbmc/esbmc#5023 (2026-06-01). |
-| Tier 4 — SLO state machine | `record_vote_index_safety`, `record_vote_changed_flag`, `overdue_detection` (3 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Row 12 (`changed`-flag invariant) models the five field-mutation sites of `record_vote`; the buggy variant exercises a spurious `True → False` toggle. |
+| Tier 4 — SLO state machine | `record_vote_index_safety`, `record_vote_changed_flag`, `record_comment_idempotent`, `overdue_detection` (4 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Row 12 (`changed`-flag invariant) models the five field-mutation sites of `record_vote`; the buggy variant exercises a spurious `True → False` toggle. Row 15 (`record_comment` idempotency) verifies the initial response is recorded exactly once; the buggy variant drops the already-responded guard. |
 | Tier 5 — milestone arithmetic | `milestone_skip_round_trip` (1 pair) | Phase 1 + Phase 2 SUCCESSFUL; buggy variant FAILED. Round-trip invariant: `next(prev(n)) == n` and `prev(next(n)) == n` for all n ≠ 82 in [1, 200]. |
 
 ---
@@ -254,6 +254,7 @@ type as nondet int constrained to the `CERTIFIABLE_GATE_TYPES` set.
 | 11 | `record_vote` index safety | `slo.py:73` | `sorted(votes, ...)[-1]` is only reached when `votes` is non-empty (guarded by the `if not votes: return False` early exit) |
 | 12 | `record_vote` changed-flag | `slo.py:73` | `changed` is `True` iff at least one gate field was mutated; the flag is monotone within a single call (no spurious `True → False` toggle) |
 | 13 | Overdue detection arithmetic | `reminders.py:463` | `initial_remaining == -1` ↔ exactly 1 weekday past deadline (newly overdue); `initial_remaining == -slo_limit` ↔ exactly `slo_limit` weekdays past deadline (long overdue) |
+| 15 | `record_comment` idempotency | `slo.py:106` | Returns `True` iff `requested_on` set, `responded_on` unset, and caller is an approver; `responded_on` is written iff the call returns `True`; a `True` call makes an immediate replay return `False` (initial response recorded once). Buggy mutation: drop the `responded_on is not None` guard, allowing re-records |
 
 ---
 
