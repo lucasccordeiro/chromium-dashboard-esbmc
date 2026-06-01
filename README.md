@@ -65,14 +65,14 @@ is called for a milestone that does not exist, and the server returns
 are 1-based; milestone 0 has no schedule data.
 Proposed fix: add `if start < 1 or end < 1: self.abort(400, msg='milestone must be >= 1')`.
 
-**ESBMC-Python pitfall discovered.** `nondet_bool()` inside a list
-comprehension (`[nondet_bool() for _ in range(N)]`) produces a fresh
-symbolic variable on each element access rather than returning the stored
-value. Passing the same list to two separate call sites therefore compares
-independent nondet draws, making every assertion trivially satisfiable.
-Fix: use explicit scalar variables (`a = nondet_bool()`, `b = nondet_bool()`,
-…) and pass them individually. Documented in [`REPORT.md`](./REPORT.md);
-fixed in the `is_eligible_dispatch` harnesses.
+**ESBMC-Python bug encountered and fixed upstream.**
+`nondet_bool()` inside a list comprehension produced a fresh symbolic
+variable on each element access, causing spurious `VERIFICATION FAILED`
+verdicts. Documented in [`REPORT.md`](./REPORT.md) and filed as
+[esbmc/esbmc#5022](https://github.com/esbmc/esbmc/issues/5022).
+Fixed in [esbmc/esbmc#5023](https://github.com/esbmc/esbmc/pull/5023)
+(merged 2026-06-01); the `is_eligible_dispatch` harnesses now use list
+comprehensions directly.
 
 ## Quickstart
 
@@ -86,7 +86,9 @@ make verify-only T=is_weekday        # single target
 make verify ESBMC=/path/to/esbmc
 ```
 
-Requires ESBMC ≥ 8.3.0 built with the Python frontend.
+Requires ESBMC built from master at or after commit `27585275`
+(PR #5023, 2026-06-01) for list-comprehension targets; ESBMC 8.3.0
+release for all other targets.
 
 ## Layout
 
@@ -113,7 +115,7 @@ harness/
   is_adoption_eligible.py               # internals/self_certify.py:93   (SUCCESSFUL)
   is_adoption_eligible_buggy.py         #   lead_time check dropped      (FAILED)
   is_eligible_dispatch.py               # internals/self_certify.py:103  (SUCCESSFUL)
-  is_eligible_dispatch_buggy.py         #   privacy↔testing routes swapped (FAILED)
+  is_eligible_dispatch_buggy.py         #   privacy↔testing routes swapped  (FAILED)
   record_vote_index_safety.py           # internals/slo.py:73 index guard (SUCCESSFUL)
   record_vote_index_safety_buggy.py     #   empty-votes guard dropped    (FAILED)
   overdue_detection.py                  # internals/reminders.py:463     (SUCCESSFUL)
@@ -167,6 +169,7 @@ A buggy target whose Phase 1 already fails skips Phase 2.
 
 ## Provenance
 
-- **ESBMC**: https://github.com/esbmc/esbmc — 8.3.0, default Bitwuzla solver.
+- **ESBMC**: https://github.com/esbmc/esbmc — master `27585275` (PR #5023,
+  2026-06-01), default Bitwuzla solver.
 - **chromium-dashboard**: https://github.com/GoogleChrome/chromium-dashboard —
   pinned at commit `d0d21c8` (2026-05-26).
