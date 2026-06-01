@@ -4,8 +4,9 @@
 
 **Describe the bug**
 
-Submitting a vote with a **falsy** `state` value (JSON `0` or `false`) causes an
-**HTTP 500 Internal Server Error** instead of a clean **HTTP 400 Bad Request**.
+Submitting a vote (as an authenticated approver) with a **falsy** `state` value
+(JSON `0` or `false`) causes an **HTTP 500 Internal Server Error** instead of a
+clean **HTTP 400 Bad Request**.
 
 `VotesAPI.do_post` parses the vote state with a validator
 (`api/reviews_api.py:78`):
@@ -138,10 +139,11 @@ run for every present value, not only truthy ones.
   State 1  state = 0
 
   Violated property:
-    file votes_state_zero_validator_bypass.py line 85 function main
+    file votes_state_zero_validator_bypass.py line 90 function main
     assertion is_valid_state(state)
 
   VERIFICATION FAILED
   ```
 
+  (The source assertion at line 90 is `assert is_valid_state(state)`.)
   Confirmed empirically with the standalone reproducer above.
