@@ -39,8 +39,10 @@ Verifier: ESBMC 8.3.0+.
 | `record_vote_changed_flag_buggy` | `record_vote_changed_flag_buggy.py` | FAILED | 1 | skipped | — | spurious `changed = False` reset in resolved branch |
 | `overdue_detection` | `overdue_detection.py` | SUCCESSFUL | 3 | SUCCESSFUL | 10 | |
 | `overdue_detection_buggy` | `overdue_detection_buggy.py` | FAILED | 1 | skipped | — | `<= -1` instead of `== -1` |
+| `milestone_skip_round_trip` | `milestone_skip_round_trip.py` | SUCCESSFUL | 2 | SUCCESSFUL | 6 | |
+| `milestone_skip_round_trip_buggy` | `milestone_skip_round_trip_buggy.py` | FAILED | 1 | skipped | — | `next` jumps to 84 instead of 83 |
 
-**Total targets: 27 (12 SUCCESSFUL + 15 FAILED, of which 3 FAILED are the live-bug
+**Total targets: 29 (13 SUCCESSFUL + 16 FAILED, of which 3 FAILED are the live-bug
 findings A/B/C). Every target matches its expected verdict; 0 deviations.**
 
 ---

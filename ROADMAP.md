@@ -67,6 +67,7 @@ range that real callers would supply.
 | Tier 2 — API validation | `channels_start_gt_end_bare_valueerror`, `features_num_zero_silent_acceptance`, `channels_milestone_zero_silent_acceptance` | All Phase 1 FAILED as expected — counterexamples are the defect witnesses. Three live bugs confirmed; see REPORT.md Findings A/B/C. |
 | Tier 3 — self-certify contracts | `is_privacy_eligible`, `is_testing_eligible`, `is_adoption_eligible`, `is_eligible_dispatch` (4 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Dispatch harness originally required scalar-arg workaround for esbmc/esbmc#5022; restored to list comprehension after upstream fix in esbmc/esbmc#5023 (2026-06-01). |
 | Tier 4 — SLO state machine | `record_vote_index_safety`, `record_vote_changed_flag`, `overdue_detection` (3 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Row 12 (`changed`-flag invariant) models the five field-mutation sites of `record_vote`; the buggy variant exercises a spurious `True → False` toggle. |
+| Tier 5 — milestone arithmetic | `milestone_skip_round_trip` (1 pair) | Phase 1 + Phase 2 SUCCESSFUL; buggy variant FAILED. Round-trip invariant: `next(prev(n)) == n` and `prev(next(n)) == n` for all n ≠ 82 in [1, 200]. |
 
 ---
 
@@ -253,6 +254,20 @@ type as nondet int constrained to the `CERTIFIABLE_GATE_TYPES` set.
 | 11 | `record_vote` index safety | `slo.py:73` | `sorted(votes, ...)[-1]` is only reached when `votes` is non-empty (guarded by the `if not votes: return False` early exit) |
 | 12 | `record_vote` changed-flag | `slo.py:73` | `changed` is `True` iff at least one gate field was mutated; the flag is monotone within a single call (no spurious `True → False` toggle) |
 | 13 | Overdue detection arithmetic | `reminders.py:463` | `initial_remaining == -1` ↔ exactly 1 weekday past deadline (newly overdue); `initial_remaining == -slo_limit` ↔ exactly `slo_limit` weekdays past deadline (long overdue) |
+
+---
+
+## Tier 5 — Milestone arithmetic
+
+`internals/ot_process_reminders.py` navigates the Chrome milestone sequence
+via two pure helpers.  Chrome milestone 82 was skipped in the actual release
+history; both helpers must agree on the same skip boundary.
+
+| # | Target | Source | Properties | Buggy mutation |
+|---|---|---|---|---|
+| 14 | `milestone_skip_round_trip` | `ot_process_reminders.py:get_next_release_number`, `get_previous_release_number` | Round-trip invariant: `next(prev(n)) == n` AND `prev(next(n)) == n` for all `n ∈ [1, 200], n ≠ 82` | Change `return 83` to `return 84` in `get_next_release_number` — breaks round-trip at n = 83 |
+
+Stubs: abstract milestone number as nondet int constrained to `[1, 200] \ {82}`.
 
 ---
 

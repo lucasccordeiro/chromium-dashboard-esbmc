@@ -250,6 +250,25 @@ TARGETS: list[Target] = [
         expected="FAILED",
         safety_expected=None,
     ),
+
+    # --- Tier 5: milestone arithmetic ---
+
+    Target(
+        # get_next_release_number / get_previous_release_number round-trip.
+        # Chrome milestone 82 was skipped; both helpers must agree on that skip.
+        # Contract: for all n in [1, 200], n != 82:
+        #   next(prev(n)) == n  AND  prev(next(n)) == n
+        name="milestone_skip_round_trip",
+        entry="milestone_skip_round_trip.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
+    Target(
+        name="milestone_skip_round_trip_buggy",
+        entry="milestone_skip_round_trip_buggy.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
 ]
 
 
