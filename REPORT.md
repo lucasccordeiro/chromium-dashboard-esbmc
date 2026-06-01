@@ -35,10 +35,13 @@ Verifier: ESBMC 8.3.0+.
 | `is_eligible_dispatch_buggy` | `is_eligible_dispatch_buggy.py` | FAILED | 1 | skipped | — | privacy↔testing routes swapped |
 | `record_vote_index_safety` | `record_vote_index_safety.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | |
 | `record_vote_index_safety_buggy` | `record_vote_index_safety_buggy.py` | FAILED | 1 | skipped | — | empty-votes guard dropped |
+| `record_vote_changed_flag` | `record_vote_changed_flag.py` | SUCCESSFUL | 1 | SUCCESSFUL | 6 | `changed` ⇔ ≥1 field mutated; monotone |
+| `record_vote_changed_flag_buggy` | `record_vote_changed_flag_buggy.py` | FAILED | 1 | skipped | — | spurious `changed = False` reset in resolved branch |
 | `overdue_detection` | `overdue_detection.py` | SUCCESSFUL | 3 | SUCCESSFUL | 10 | |
 | `overdue_detection_buggy` | `overdue_detection_buggy.py` | FAILED | 1 | skipped | — | `<= -1` instead of `== -1` |
 
-**Total targets: 26 (13 good + 13 buggy). Total failures: 0.**
+**Total targets: 27 (12 SUCCESSFUL + 15 FAILED, of which 3 FAILED are the live-bug
+findings A/B/C). Every target matches its expected verdict; 0 deviations.**
 
 ---
 
