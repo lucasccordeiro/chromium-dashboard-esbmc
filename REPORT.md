@@ -31,7 +31,7 @@ Verifier: ESBMC 8.3.0+.
 | `is_testing_eligible_buggy` | `is_testing_eligible_buggy.py` | FAILED | 1 | skipped | — | integration check dropped |
 | `is_adoption_eligible` | `is_adoption_eligible.py` | SUCCESSFUL | 6 | SUCCESSFUL | 6 | |
 | `is_adoption_eligible_buggy` | `is_adoption_eligible_buggy.py` | FAILED | 1 | skipped | — | lead_time check dropped |
-| `is_eligible_dispatch` | `is_eligible_dispatch.py` | SUCCESSFUL | 3 | SUCCESSFUL | 3 | scalar args (list pitfall fixed) |
+| `is_eligible_dispatch` | `is_eligible_dispatch.py` | SUCCESSFUL | 3 | SUCCESSFUL | 3 | list comprehension (esbmc/esbmc#5023) |
 | `is_eligible_dispatch_buggy` | `is_eligible_dispatch_buggy.py` | FAILED | 1 | skipped | — | privacy↔testing routes swapped |
 | `record_vote_index_safety` | `record_vote_index_safety.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | |
 | `record_vote_index_safety_buggy` | `record_vote_index_safety_buggy.py` | FAILED | 1 | skipped | — | empty-votes guard dropped |
@@ -45,30 +45,30 @@ findings A/B/C). Every target matches its expected verdict; 0 deviations.**
 
 ---
 
-## ESBMC-Python pitfalls encountered
+## ESBMC-Python bug encountered and fixed upstream
 
-### List comprehension / nondet_bool ([esbmc/esbmc#5022](https://github.com/esbmc/esbmc/issues/5022))
+### List comprehension / nondet_bool ([esbmc/esbmc#5022](https://github.com/esbmc/esbmc/issues/5022), fixed in [esbmc/esbmc#5023](https://github.com/esbmc/esbmc/pull/5023))
 
-`[nondet_bool() for _ in range(N)]` creates a list, but ESBMC-Python does not
+`[nondet_bool() for _ in range(N)]` created a list, but ESBMC-Python did not
 stably store the comprehension's elements: reading `ans[i]` through a
-function-parameter alias re-materialises a fresh nondet variable rather than
-returning the stored element.  When the same list is passed to two separate
+function-parameter alias re-materialised a fresh nondet variable rather than
+returning the stored element.  When the same list was passed to two separate
 function calls (`is_eligible(gate_type, ans)` and then
-`is_privacy_eligible(ans)`), the two calls see independent nondet draws — the
-assertion `result == predicate(ans)` becomes a comparison of independent
+`is_privacy_eligible(ans)`), the two calls saw independent nondet draws — the
+assertion `result == predicate(ans)` became a comparison of independent
 symbolic values.
 
-**Symptom: spurious `VERIFICATION FAILED` (a false alarm), not a false
-SUCCESSFUL.** Even the tautology `p(ans) == p(ans)` for a pure `p` is reported
-FAILED.  The trigger is specifically the comprehension: swapping it for an
-equivalent literal (`[nondet_bool(), nondet_bool()]`) verifies SUCCESSFUL.
-Reproduced under both Bitwuzla and Z3 on ESBMC 8.3.0 / master `b259f8a`; minimal
-case in [`reproducer/esbmc_list_comprehension_divergence.py`](./reproducer/esbmc_list_comprehension_divergence.py).
+**Symptom:** spurious `VERIFICATION FAILED` (a false alarm), not a false
+SUCCESSFUL.  Reproduced under both Bitwuzla and Z3 on ESBMC 8.3.0 / master
+`b259f8a`; minimal case in
+[`reproducer/esbmc_list_comprehension_divergence.py`](./reproducer/esbmc_list_comprehension_divergence.py).
 Distinct from the closed #3836 (spurious out-of-bounds, fixed by #3839).
 
-**Workaround**: use explicit scalar variables (`expl = nondet_bool()`, `lang = nondet_bool()`, ...)
-and pass them individually to every call site.  Demonstrated in
-`is_eligible_dispatch.py` and `is_eligible_dispatch_buggy.py`.
+**Status:** fixed in [esbmc/esbmc#5023](https://github.com/esbmc/esbmc/pull/5023)
+(merged 2026-06-01, commit `27585275`).  `get_argument_type` now recovers
+`list[T]` for a name bound to an empty-literal comprehension by inspecting the
+first `.append(arg)` in the enclosing scope.  The `is_eligible_dispatch`
+harnesses have been updated to use list comprehensions directly.
 
 ---
 

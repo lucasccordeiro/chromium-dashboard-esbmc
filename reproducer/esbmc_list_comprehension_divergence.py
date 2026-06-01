@@ -24,8 +24,9 @@ Control (swap ONLY the comprehension for a literal -> SUCCESSFUL):
       ans = [nondet_bool(), nondet_bool()]   # literal, not a comprehension
       assert p(ans) == p(ans)
 
-Workaround used in this PoC: pass scalar nondet vars individually instead of a
-list (see ../harness/is_eligible_dispatch.py).
+Fixed in esbmc/esbmc#5023 (merged 2026-06-01, commit 27585275).
+The harnesses in ../harness/is_eligible_dispatch*.py now use list
+comprehensions directly.  This file is kept as a regression reproducer.
 
 `nondet_bool` is an ESBMC-Python intrinsic (deliberately undefined at the Python
 level), so static checkers flag it — same as every entry file under ../harness/.
