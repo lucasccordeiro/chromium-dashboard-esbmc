@@ -1,59 +1,72 @@
-**Title:** VotesAPI accepts an invalid vote state of 0 (or false) — get_param/get_int_param skip validation for falsy values
+**Title:** VotesAPI returns HTTP 500 for a falsy `state` (0 or false) — get_param/get_int_param skip validation, set_vote raises a bare ValueError
 
 ---
 
 **Describe the bug**
 
-`VotesAPI.do_post` reads the vote state with a validator:
+Submitting a vote with a **falsy** `state` value (JSON `0` or `false`) causes an
+**HTTP 500 Internal Server Error** instead of a clean **HTTP 400 Bad Request**.
+
+`VotesAPI.do_post` parses the vote state with a validator
+(`api/reviews_api.py:78`):
 
 ```python
 new_state = self.get_int_param('state', validator=Vote.is_valid_state)
 ```
 
 `Vote.is_valid_state(s)` returns `s in Vote.VOTE_VALUES`, whose keys are the
-valid vote states `1..11`. State `0` is **not** a valid vote state (it equals
-`Gate.PREPARING`).
+valid vote states `1..11` (`internals/review_models.py:172-174`); `0` is not a
+valid vote state (`PREPARING = 0` is marked "Not used", `review_models.py:96`).
 
-However, both `get_param` and `get_int_param` guard their validation with a
-`val and ...` short-circuit, so **falsy** values bypass validation entirely:
+The intent is to reject any invalid `state` with HTTP 400 at the API boundary.
+But both `get_param` and `get_int_param` guard their checks with a
+`val and ...` short-circuit, so a **falsy** value bypasses validation entirely
+(`framework/basehandlers.py`):
 
 ```python
-# framework/basehandlers.py
-def get_param(self, name, default=None, required=True, validator=None, allowed=None):
-    ...
-    if val and validator and not validator(val):   # falsy val -> validator skipped
-        self.abort(400, ...)
-    ...
-    return val
-
-def get_int_param(self, name, ..., validator=None, ...):
-    val = self.get_param(name, ..., validator=validator, ...)
-    if val and type(val) != int:                    # falsy val -> type check skipped
-        self.abort(400, ...)
-    return val
+# get_param (line 124)
+if val and validator and not validator(val):   # falsy val -> validator skipped
+    self.abort(400, ...)
+# get_int_param (line 141)
+if val and type(val) != int:                   # falsy val -> type check skipped
+    self.abort(400, ...)
 ```
 
-With a JSON body `{"state": 0}`, `val = 0` is falsy: the `Vote.is_valid_state`
-validator is never called and the int type check is skipped. The invalid state
-`0` is returned and flows into `approval_defs.set_vote(...)`, recording a
-malformed vote state. A body `{"state": false}` behaves the same way and even
-returns a Python `bool` where an `int` is expected.
+With `{"state": 0}`, `val = 0` is falsy: `Vote.is_valid_state` is never called
+and the int type check is skipped, so the invalid `0` is returned. It then
+passes `require_permissions` and `check_voting_rules` (for a user who is an
+approver) and reaches `approval_defs.set_vote`, which re-validates and raises a
+**bare** `ValueError` (`internals/approval_defs.py:466-467`):
+
+```python
+if not Vote.is_valid_state(new_state):
+    raise ValueError('Invalid approval state')
+```
+
+Because the raise is bare (not `self.abort(400, ...)`) and `APIHandler.post`
+has no `except ValueError` (`framework/basehandlers.py:275`), the exception
+propagates to Flask as **HTTP 500**.
+
+So the invalid value is *not* recorded — the `set_vote` guard backstops it — but
+the caller receives a 500 instead of a 400. This is the same bare-raise → 500
+mechanism as Finding A (`channels_api.py`).
 
 **To Reproduce**
 
-1. POST a vote with `state` set to `0`:
+1. As an authenticated approver for a gate, POST a vote with `state` set to `0`:
    ```
    POST /api/v0/votes/<feature_id>/<gate_id>
    {"state": 0}
    ```
-2. The request is accepted instead of being rejected with HTTP 400, and an
-   invalid vote state is recorded.
+2. Observe **HTTP 500 Internal Server Error** (expected: HTTP 400).
+   `{"state": false}` behaves identically.
 
-Minimal standalone reproducer (no Flask/NDB needed — inlines the exact upstream
-logic), `reproducer/finding_d_state_validator_bypass.py`:
+Minimal standalone reproducer (no Flask/NDB — inlines the exact upstream logic
+across `get_param`, `get_int_param`, and `set_vote`),
+`reproducer/finding_d_state_validator_bypass.py`:
 
 ```python
-VOTE_VALUES = {i: f'state_{i}' for i in range(1, 12)}  # valid states 1..11
+VOTE_VALUES = {i: f'state_{i}' for i in range(1, 12)}   # valid states 1..11
 
 def is_valid_state(s):
     return s in VOTE_VALUES
@@ -62,44 +75,47 @@ def get_param(body, name, required=True, validator=None):
     val = body.get(name)
     if required and val is None:
         raise Abort400('Missing %r' % name)
-    if val and validator and not validator(val):   # falsy val skips validator
+    if val and validator and not validator(val):   # :124 falsy val skips validator
         raise Abort400('Invalid %r' % name)
     return val
 
 def get_int_param(body, name, validator=None):
     val = get_param(body, name, validator=validator)
-    if val and type(val) != int:                    # falsy val skips type check
+    if val and type(val) != int:                    # :141 falsy val skips type check
         raise Abort400('%r not an int' % name)
     return val
 
-get_int_param({'state': 0}, 'state', validator=is_valid_state)      # returns 0
-get_int_param({'state': False}, 'state', validator=is_valid_state)  # returns False
-get_int_param({'state': 99}, 'state', validator=is_valid_state)     # correctly aborts
+def set_vote(new_state):                            # approval_defs.py:466-467
+    if not is_valid_state(new_state):
+        raise ValueError('Invalid approval state')  # bare raise -> HTTP 500
 ```
 
 Output:
 
 ```
-BUG: state=0 accepted; is_valid_state(0) = False
-BUG: state=false accepted; type = bool is_valid_state = False
-OK: state=99 correctly rejected -> Invalid value for parameter 'state'
+OK:  state=5  -> HTTP 200 (recorded)
+BUG: state=0 -> helper accepts it, set_vote raises bare ValueError -> HTTP 500 (expected 400)
+BUG: state=False -> helper accepts it, set_vote raises bare ValueError -> HTTP 500 (expected 400)
+OK:  state=99 -> HTTP 400 (rejected at API boundary)
 ```
 
-The non-falsy invalid value `99` is correctly rejected, confirming the gap is
-specific to falsy values.
+The non-falsy invalid value `99` is rejected cleanly with HTTP 400, confirming
+the gap is specific to falsy values.
 
 **Expected behavior**
 
-A `state` that is not in `Vote.VOTE_VALUES` (including `0` and `false`) should
-be rejected with **HTTP 400 Bad Request**. Validators and the int type check
-must run for every present value, not only truthy ones.
+A `state` that is not in `Vote.VOTE_VALUES` (including `0` and `false`) should be
+rejected with **HTTP 400 Bad Request**. Validators and the int type check must
+run for every present value, not only truthy ones.
 
 **Additional context**
 
 - Affected files:
-  - `api/reviews_api.py` (`VotesAPI.do_post`)
-  - `framework/basehandlers.py` (`get_param`, `get_int_param`)
-- The fix is to test for presence rather than truthiness:
+  - `framework/basehandlers.py:124` (`get_param`) and `:141` (`get_int_param`)
+  - `api/reviews_api.py:78` (`VotesAPI.do_post`)
+  - `internals/approval_defs.py:466-467` (`set_vote` bare `raise ValueError`)
+- Primary fix — test for presence rather than truthiness so falsy invalid
+  values are rejected at the boundary:
   ```python
   # get_param
   if val is not None and validator and not validator(val):
@@ -108,12 +124,15 @@ must run for every present value, not only truthy ones.
   if val is not None and type(val) != int:
       self.abort(400, ...)
   ```
-  (`get_param`'s `allowed` guard has the same `val and ...` short-circuit and
-  should be fixed the same way.)
+  (`get_param`'s `allowed` guard on line 126 has the same `val and ...` flaw.)
+- Defense-in-depth: `set_vote` should `self.abort(400, ...)` (or callers should
+  catch `ValueError`) rather than letting a bare `ValueError` become an HTTP 500
+  — same remediation as Finding A.
 - Found by [ESBMC](https://github.com/esbmc/esbmc) v8.3.0 bounded model
   checking on a symbolic harness
-  (`harness/votes_state_zero_validator_bypass.py`). ESBMC assigned `state = 0`
-  and produced the following counterexample (1 VCC, solver: Bitwuzla):
+  (`harness/votes_state_zero_validator_bypass.py`), which models the
+  `get_param`/`get_int_param` acceptance gate. ESBMC assigned `state = 0` and
+  produced the following counterexample (1 VCC, solver: Bitwuzla):
 
   ```
   State 1  state = 0

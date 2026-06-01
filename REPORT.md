@@ -166,41 +166,59 @@ after the args are parsed.
 
 ---
 
-### Finding D — `reviews_api.py` `VotesAPI.do_post` — `state=0`/`false` bypasses `Vote.is_valid_state` (not yet filed)
+### Finding D — `reviews_api.py:78` `VotesAPI.do_post` — falsy `state` (0/false) → HTTP 500 via bypassed validation + bare `ValueError` (not yet filed)
 
-**Source**: `api/reviews_api.py` (`VotesAPI.do_post`),
-`framework/basehandlers.py` (`get_param`, `get_int_param`)
+**Source**: `api/reviews_api.py:78` (`VotesAPI.do_post`),
+`framework/basehandlers.py:124,141` (`get_param`, `get_int_param`),
+`internals/approval_defs.py:466-467` (`set_vote`)
 
 ```python
 new_state = self.get_int_param('state', validator=Vote.is_valid_state)
 ```
 
-Both `get_param` (`if val and validator and not validator(val)`) and
-`get_int_param` (`if val and type(val) != int`) guard validation with a
-`val and ...` short-circuit.  A falsy `state` (JSON `0` or `false`) skips
-both the `Vote.is_valid_state` validator and the int type check.
-`is_valid_state(0)` is False (valid states are `1..11`), yet `0` is accepted
-and recorded as a vote state.
+Both `get_param` (line 124, `if val and validator and not validator(val)`) and
+`get_int_param` (line 141, `if val and type(val) != int`) guard validation with
+a `val and ...` short-circuit.  A falsy `state` (JSON `0` or `false`) skips both
+the `Vote.is_valid_state` validator and the int type check, so the invalid value
+is returned from the helper instead of being rejected with HTTP 400.
+`is_valid_state(0)` is False (valid states are `1..11`; `0 == Gate.PREPARING`).
 
-**ESBMC counterexample** (`votes_state_zero_validator_bypass.py`,
-Phase 1 FAILED, 1 VCC):
+The bypassed value is **not** recorded: `approval_defs.set_vote` re-checks and
+raises a **bare** `ValueError('Invalid approval state')` (lines 466-467).  Since
+the raise is bare (not `self.abort(400, ...)`) and `APIHandler.post`
+(`basehandlers.py:275`) has no `except ValueError`, the caller receives
+**HTTP 500** instead of HTTP 400 — the same bare-raise → 500 mechanism as
+Finding A.
+
+**ESBMC counterexample** (`votes_state_zero_validator_bypass.py`, models the
+helper acceptance gate, Phase 1 FAILED, 1 VCC):
 
 ```
 Violated property:
   file votes_state_zero_validator_bypass.py
   assertion is_valid_state(state)
 
-  state = 0  (validator short-circuited by `val and ...`; accepted)
+  state = 0  (validator short-circuited by `val and ...`; accepted by helper)
 ```
 
 Confirmed empirically under CPython
-(`reproducer/finding_d_state_validator_bypass.py`): `state=0` and `state=false`
-are accepted, while the non-falsy invalid `state=99` is correctly rejected.
+(`reproducer/finding_d_state_validator_bypass.py`), which models the full chain:
+
+```
+OK:  state=5  -> HTTP 200 (recorded)
+BUG: state=0 -> helper accepts it, set_vote raises bare ValueError -> HTTP 500 (expected 400)
+BUG: state=False -> helper accepts it, set_vote raises bare ValueError -> HTTP 500 (expected 400)
+OK:  state=99 -> HTTP 400 (rejected at API boundary)
+```
+
+The non-falsy invalid `state=99` is rejected cleanly (HTTP 400), confirming the
+gap is specific to falsy values.
 
 **Proposed fix**: test presence rather than truthiness —
 `if val is not None and validator and not validator(val):` in `get_param`
 and `if val is not None and type(val) != int:` in `get_int_param`
-(the `allowed` guard in `get_param` has the same flaw).
+(the `allowed` guard on line 126 has the same flaw).  Defense-in-depth:
+`set_vote` should `self.abort(400, ...)` rather than raise a bare `ValueError`.
 
-**Severity**: silent-acceptance / validation-bypass defect — same class as
-Findings A/B/C and vLLM Finding #3.
+**Severity**: validation-bypass → HTTP 500 defect — same bare-raise → 500 class
+as Finding A.

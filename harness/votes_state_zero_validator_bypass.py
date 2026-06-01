@@ -28,19 +28,24 @@
 # `val and validator and not validator(val)` guard in get_param AND the
 # `val and type(val) != int` guard in get_int_param short-circuit on the falsy
 # 0, so the Vote.is_valid_state validator is never consulted.  An invalid vote
-# state 0 (== Gate.PREPARING, not a member of Vote.VOTE_VALUES) is returned and
-# flows into approval_defs.set_vote(...), recording a malformed vote state.
+# state 0 (== Gate.PREPARING, not a member of Vote.VOTE_VALUES) is returned from
+# the helper instead of being rejected with HTTP 400 at the API boundary.
 #
-# Same silent-acceptance / validation-bypass class as Findings A/B/C: a
-# malformed API parameter is admitted with no 400 error.
+# This harness models the get_param/get_int_param acceptance gate only; it FAILS
+# at state == 0, witnessing the validation bypass.  Downstream the invalid value
+# is NOT recorded: approval_defs.set_vote re-checks is_valid_state and raises a
+# bare ValueError (approval_defs.py:466-467).  Because that raise is bare (not
+# self.abort) and APIHandler.post has no `except ValueError`, the observable
+# symptom is HTTP 500 — the same bare-raise -> 500 mechanism as Finding A, not a
+# recorded-bad-data bug.  See bug-reports/finding-d-...md for the full chain.
 #
 # Expected verdict: FAILED (the post-validation `is_valid` contract is violated
 # at state == 0).
 #
 # Empirical reproduction:
 #   POST /api/v0/votes ... {"state": 0}
-#   → validator Vote.is_valid_state(0) is skipped; state 0 is accepted.
-#   (expected: HTTP 400 "Invalid value for parameter 'state'")
+#   → validator Vote.is_valid_state(0) is skipped; helper accepts state 0;
+#     set_vote then raises a bare ValueError -> HTTP 500 (expected: HTTP 400).
 #
 # Proposed fix: drop the `val and` short-circuit so falsy values are still
 # validated, e.g. `if val is not None and validator and not validator(val):`
