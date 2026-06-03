@@ -23,15 +23,19 @@ idempotency, overdue-detection arithmetic), and milestone arithmetic
 with 0 failures.
 
 **Five live API-validation findings** confirmed by ESBMC counterexamples
-and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)):
+and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
+**Two have maintainer fix PRs open upstream**: a maintainer opened
+[PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)
+(resolving Finding A) and [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)
+(resolving Finding D), each implementing the fix we proposed.
 
-| Finding | Source | Admitted value | Downstream effect | Issue |
-|---|---|---|---|---|
-| A | `api/channels_api.py:146` | `?start > ?end` | Bare `raise ValueError` → Flask returns **HTTP 500** instead of HTTP 400 | [#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441) |
-| B | `api/features_api.py:117` | `?num=0` | `get_int_arg` admits 0 → **silent empty page** (HTTP 200, no error signal) | [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442) |
-| C | `api/channels_api.py:138` | `?start=0` / `?end=0` | Milestone 0 accepted → **null dates** returned (HTTP 200, no error signal) | [#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443) |
-| D | `api/reviews_api.py:78` | `{"state": 0}` / `false` | Falsy value skips `Vote.is_valid_state` (`get_param`/`get_int_param` `val and …` short-circuit) → `set_vote` bare `ValueError` → **HTTP 500** instead of HTTP 400 | [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447) |
-| E | `api/shipping_features_api.py:58` | `?mstone=0` | `get_int_arg` admits 0; handler guards only `is None` → **empty feature lists** (HTTP 200, no error signal) | _filed: pending_ |
+| Finding | Source | Admitted value | Downstream effect | Issue | Upstream fix |
+|---|---|---|---|---|---|
+| A | `api/channels_api.py:146` | `?start > ?end` | Bare `raise ValueError` → Flask returns **HTTP 500** instead of HTTP 400 | [#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441) | [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) (open) |
+| B | `api/features_api.py:117` | `?num=0` | `get_int_arg` admits 0 → **silent empty page** (HTTP 200, no error signal) | [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442) | closed — won't fix (benign) |
+| C | `api/channels_api.py:138` | `?start=0` / `?end=0` | Milestone 0 accepted → **null dates** returned (HTTP 200, no error signal) | [#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443) | — |
+| D | `api/reviews_api.py:78` | `{"state": 0}` / `false` | Falsy value skips `Vote.is_valid_state` (`get_param`/`get_int_param` `val and …` short-circuit) → `set_vote` bare `ValueError` → **HTTP 500** instead of HTTP 400 | [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447) | [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452) (open) |
+| E | `api/shipping_features_api.py:58` | `?mstone=0` | `get_int_arg` admits 0; handler guards only `is None` → **empty feature lists** (HTTP 200, no error signal) | _filed: pending_ | — |
 
 **Worked example — Finding B (`?num=0` silent-acceptance, [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442)).**
 `GET /api/v0/features?num=0` is a reasonable user mistake (or a fuzzer
@@ -59,6 +63,10 @@ Proposed fix: replace `raise ValueError` with
 `self.abort(400, msg='start must be <= end')`.
 Same class as vLLM Finding #4 (bare `AssertionError` in `BlockPool.__init__`
 instead of a clean `ValueError`).
+**Maintainer fix PR open upstream** ([PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451),
+open as of 2026-06-03): the maintainer replaced `raise ValueError` with
+`self.abort(400, 'start is greater than end')` — the fix we proposed — and added
+a regression test asserting HTTP 400.
 
 **Finding C — milestone 0 accepted, null dates returned ([#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443)).**
 `api/channels_api.py:138–139` reads `?start` and `?end` through the same
@@ -83,6 +91,12 @@ pins the helper bypass (`assertion is_valid_state(state)` violated at
 → 500 mechanism as Finding A ([#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441)).
 Proposed fix: test `val is not None` instead of `val` in the `get_param`/
 `get_int_param` guards; `set_vote` should `self.abort(400, …)` not bare-raise.
+**Maintainer fix PR open upstream** ([PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452),
+open as of 2026-06-03): the maintainer changed both `get_param` guards from
+`if val and …` to `if val is not None and …` — the exact fix we proposed —
+with the rationale "we should validate whenever an expected int parameter is
+found, even if it is 0." This rejects the falsy `state` at the API boundary, so
+`set_vote`'s bare `ValueError` is no longer reached on this path.
 
 **Finding E — silent acceptance of `?mstone=0` (HTTP 200 empty page).**
 `api/shipping_features_api.py:58` (`ShippingFeaturesAPI.do_get`) reads
