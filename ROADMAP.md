@@ -64,7 +64,7 @@ range that real callers would supply.
 | Family | Targets | Notes |
 |---|---|---|
 | Tier 1 — pure arithmetic | `is_weekday`, `weekdays_between_approx`, `weekdays_between_loop`, `remaining_days`, `diff_days_and_weeks` (5 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. One harness fix required during run: loop-buggy mutation changed from "drop cap" (structurally undetectable at `calendar_days ≤ 30`) to "init counter=1" (caught at `calendar_days=0`). |
-| Tier 2 — API validation | `channels_start_gt_end_bare_valueerror`, `features_num_zero_silent_acceptance`, `channels_milestone_zero_silent_acceptance`, `votes_state_zero_validator_bypass`, `shipping_features_mstone_zero_silent_acceptance`, `releasenotes_milestone_range_validated` (positive control) | Five buggy targets Phase 1 FAILED as expected — counterexamples are the defect witnesses (Findings A/B/C/D/E). The `releasenotes` positive control is SUCCESSFUL: it verifies the milestone-range postcondition Findings A/C violate, confirming the buggy harnesses are non-vacuous. A maintainer opened fix PRs ([#6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) / [#6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)) resolving Findings A and D, each adopting our proposed fix. See REPORT.md. |
+| Tier 2 — API validation | `channels_start_gt_end_bare_valueerror`, `features_num_zero_silent_acceptance`, `channels_milestone_zero_silent_acceptance`, `votes_state_zero_validator_bypass`, `shipping_features_mstone_zero_silent_acceptance`, `metricsdata_num_zero_returns_all`, `releasenotes_milestone_range_validated` + `metricsdata_num_limit_honored` (positive controls) | Six buggy targets Phase 1 FAILED as expected — counterexamples are the defect witnesses (Findings A/B/C/D/E/F). Two positive controls are SUCCESSFUL: `releasenotes` verifies the milestone-range postcondition Findings A/C violate, and `metricsdata_num_limit_honored` verifies the `if num is not None` fix for Finding F — both confirming the buggy harnesses are non-vacuous. A maintainer opened fix PRs ([#6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) / [#6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)) resolving Findings A and D, each adopting our proposed fix. See REPORT.md. |
 | Tier 3 — self-certify contracts | `is_privacy_eligible`, `is_testing_eligible`, `is_adoption_eligible`, `is_eligible_dispatch` (4 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Dispatch harness originally required scalar-arg workaround for esbmc/esbmc#5022; restored to list comprehension after upstream fix in esbmc/esbmc#5023 (2026-06-01). |
 | Tier 4 — SLO state machine | `record_vote_index_safety`, `record_vote_changed_flag`, `record_comment_idempotent`, `overdue_detection` (4 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Row 12 (`changed`-flag invariant) models the five field-mutation sites of `record_vote`; the buggy variant exercises a spurious `True → False` toggle. Row 15 (`record_comment` idempotency) verifies the initial response is recorded exactly once; the buggy variant drops the already-responded guard. |
 | Tier 5 — milestone arithmetic | `milestone_skip_round_trip` (1 pair) | Phase 1 + Phase 2 SUCCESSFUL; buggy variant FAILED. Round-trip invariant: `next(prev(n)) == n` and `prev(next(n)) == n` for all n ≠ 82 in [1, 200]. |
@@ -249,6 +249,40 @@ The assertion fails → counterexample is the witness.
 
 ---
 
+### Finding F — `FeatureHandler.get_template_data`: `?num=0` returns all datapoints → HTTP 200 (inverse of B)
+
+**Source**: `api/metricsdata.py:199-212`
+
+```python
+num = self.get_int_arg('num')           # admits 0
+if num and not self.should_refresh():   # num=0 falsy → cache path skipped
+    ...
+properties = self.fetch_all_datapoints()
+if num:                                 # num=0 falsy → slice skipped
+    properties = properties[:num]
+return _datapoints_to_json_dicts(properties)   # → ALL datapoints, HTTP 200
+```
+
+`get_int_arg` admits `0`; the result is bounded with `if num:`, a truthiness
+guard, so `num=0` skips the `properties[:num]` slice and the handler returns the
+full dataset with **HTTP 200**.  The mirror image of Finding B (`?num=0` → empty
+page there; → everything here).  Combines the `get_int_arg`-admits-`0` class
+(B/C/E) with the falsy-guard short-circuit class (`if num:`, same shape as
+Finding D's `if val and …`).
+
+**ESBMC harness**: model `num = 0`, `n_total > 0`; assert `result_len <= num`
+after the slice gate.  The assertion fails → counterexample is the witness.  The
+paired good harness asserts the same bound under the fix (`if num is not None:`)
+and is SUCCESSFUL.
+
+**Proposed fix**: replace `if num:` with `if num is not None:` so a provided
+limit (including `0`) always bounds the result.
+
+**Severity**: silent-acceptance defect — same benign class as Finding B
+(#6442, closed won't-fix); not filed upstream as a standalone bug.
+
+---
+
 ### Positive control — `ReleaseNotesL10nAPI.do_get`: milestone-range check done right
 
 **Source**: `api/releasenotes_api.py:37-51`
@@ -271,6 +305,7 @@ postcondition Findings A/C violate, confirming the buggy harnesses discriminate.
 | C | `channels_api.py:138` | `start=0` / `end=0` | Milestone 0 queried; null dates returned | Add `>= 1` check after param parsing |
 | D | `reviews_api.py:78` `VotesAPI.do_post` | `state=0` / `state=false` | Falsy value skips `Vote.is_valid_state` + int check in `get_param`/`get_int_param` (lines 124/141); reaches `set_vote`, which raises a bare `ValueError` (approval_defs.py:467) → HTTP 500 (same class as Finding A), not recorded | Test `val is not None` instead of `val` in the guards; `set_vote` should `abort(400)` not bare-raise. **Maintainer fix PR open upstream: [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452).** |
 | E | `shipping_features_api.py:58` `ShippingFeaturesAPI.do_get` | `mstone=0` | `get_int_arg` admits 0; `is None` guard passes; milestone 0 matches no stage → empty lists, HTTP 200, no error signal | Add `if milestone < 1: self.abort(400, ...)` after the `is None` guard, or a `get_int_arg` `min_value` param |
+| F | `metricsdata.py:199` `FeatureHandler.get_template_data` | `num=0` | `get_int_arg` admits 0; `if num:` truthiness guard skips `properties[:num]` → all datapoints returned, HTTP 200 (inverse of B) | Replace `if num:` with `if num is not None:` so a provided limit (incl. 0) bounds the result |
 
 ---
 

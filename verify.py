@@ -184,6 +184,28 @@ TARGETS: list[Target] = [
         expected="SUCCESSFUL",
         safety_expected="SUCCESSFUL",
     ),
+    Target(
+        # Finding F: api/metricsdata.py:199 FeatureHandler.get_template_data
+        # get_int_arg('num') admits 0; the result is bounded with `if num:`, a
+        # truthiness guard, so num=0 skips `properties[:num]` and the handler
+        # returns ALL datapoints with HTTP 200 — the inverse of Finding B.
+        # Contract: a provided limit must bound the result (len <= num);
+        # assertion fails at num=0 where the full dataset is returned.
+        name="metricsdata_num_zero_returns_all",
+        entry="metricsdata_num_zero_returns_all.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+    Target(
+        # Paired good harness / positive control for Finding F: the proposed fix
+        # bounds the result with `if num is not None:` so a provided limit (incl.
+        # 0) is always honored. Postcondition len(result) <= num holds for every
+        # admitted num >= 0. Holds.
+        name="metricsdata_num_limit_honored",
+        entry="metricsdata_num_limit_honored.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
 
     # --- Tier 3: self-certify logic contracts ---
 
