@@ -11,16 +11,29 @@ Modelled on the
 
 ## Status
 
-**44 verification targets** across five tiers — pure date/integer arithmetic
+**48 verification targets** across five tiers — pure date/integer arithmetic
 helpers (`is_weekday`, `weekdays_between`, `remaining_days`, `diff_days`,
 `diff_weeks`), HTTP API input-validation paths, self-certify boolean
 contracts (`is_privacy_eligible`, `is_testing_eligible`,
 `is_adoption_eligible`, `is_eligible`), SLO gate state-machine invariants
 (`record_vote` index safety, `record_vote` changed-flag, `record_comment`
-idempotency, overdue-detection arithmetic), and milestone arithmetic
-(`get_next_release_number`/`get_previous_release_number` round-trip).
+idempotency, overdue-detection arithmetic), review/approval **security
+invariants** (gate-approval integrity, vote authorization), and milestone
+arithmetic (`get_next_release_number`/`get_previous_release_number` round-trip).
 `make verify` (two phases per target) completes in under 30 seconds
 with 0 failures.
+
+**Two security invariants of the review/approval workflow are proven (no bug
+found).** ESBMC verifies that the gate-vote tally cannot manufacture a spurious
+approval — `internals/approval_defs.py:_calc_gate_state` returns `APPROVED` only
+with ≥ threshold genuine `APPROVED` votes (1 for `ONE_LGTM`, 3 for `THREE_LGTM`)
+and no `NA` vote — and that the vote-authorization predicate
+(`api/reviews_api.py:require_permissions`) lets only an approver cast a negative
+verdict and lets a non-approver reach an approving state only as a
+self-certify-eligible editor. Each carries a paired buggy control (relaxed
+threshold / dropped self-certify check) that ESBMC catches, so the proofs are
+non-vacuous. These are **proofs of absence**, not findings — the access-control
+logic is sound.
 
 **Ten live API-validation findings** confirmed by ESBMC counterexamples
 and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).

@@ -293,6 +293,45 @@ TARGETS: list[Target] = [
         safety_expected="SUCCESSFUL",
     ),
 
+    Target(
+        # Gate-approval integrity invariant: internals/approval_defs.py
+        # _calc_gate_state returns APPROVED only if >= threshold genuine APPROVED
+        # votes were cast (1 for ONE_LGTM, 3 for THREE_LGTM) and no NA vote is
+        # present -- i.e. the vote tally cannot manufacture a spurious approval.
+        # Faithful model over symbolic vote counts; proves the property holds.
+        name="gate_approval_integrity",
+        entry="gate_approval_integrity.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
+    Target(
+        # Non-vacuity control: same model with the THREE_LGTM threshold mutated
+        # to >= 1 (a 3-reviewer gate approved by a single vote). ESBMC catches it.
+        name="gate_approval_integrity_buggy",
+        entry="gate_approval_integrity_buggy.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+    Target(
+        # Vote-authorization invariant: api/reviews_api.py require_permissions.
+        # Proves (A) only an approver may cast a negative verdict (DENIED/
+        # NEEDS_WORK/REVIEW_STARTED/INTERNAL_REVIEW) and (B) a non-approver may
+        # reach an approving state only as a self-certify-eligible editor.
+        name="vote_authorization_invariant",
+        entry="vote_authorization_invariant.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
+    Target(
+        # Non-vacuity control: same predicate with the self-certify check dropped
+        # from the approving branch (any editor could self-approve any gate).
+        # ESBMC catches it via property (B).
+        name="vote_authorization_invariant_buggy",
+        entry="vote_authorization_invariant_buggy.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+
     # --- Tier 3: self-certify logic contracts ---
 
     Target(

@@ -38,6 +38,10 @@ Verifier: ESBMC 8.3.0+.
 | `comments_patch_comment_existence_validated` | `comments_patch_comment_existence_validated.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: comment-existence guard returns 404 |
 | `intents_post_unknown_key_http500` | `intents_post_unknown_key_http500.py` | **FAILED** | 1 | skipped | — | **Finding J — live bug** |
 | `intents_post_body_validated` | `intents_post_body_validated.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: tolerant deserialization, never 500 |
+| `gate_approval_integrity` | `gate_approval_integrity.py` | SUCCESSFUL | 2 | SUCCESSFUL | 7 | security invariant: no spurious gate approval |
+| `gate_approval_integrity_buggy` | `gate_approval_integrity_buggy.py` | FAILED | 2 | skipped | — | non-vacuity: relaxed THREE_LGTM threshold caught |
+| `vote_authorization_invariant` | `vote_authorization_invariant.py` | SUCCESSFUL | 3 | SUCCESSFUL | 3 | security invariant: vote-permission predicate sound |
+| `vote_authorization_invariant_buggy` | `vote_authorization_invariant_buggy.py` | FAILED | 3 | skipped | — | non-vacuity: dropped self-certify check caught |
 | `is_privacy_eligible` | `is_privacy_eligible.py` | SUCCESSFUL | 4 | SUCCESSFUL | 4 | |
 | `is_privacy_eligible_buggy` | `is_privacy_eligible_buggy.py` | FAILED | 1 | skipped | — | explanation check dropped |
 | `is_testing_eligible` | `is_testing_eligible.py` | SUCCESSFUL | 7 | SUCCESSFUL | 7 | |
@@ -57,8 +61,15 @@ Verifier: ESBMC 8.3.0+.
 | `milestone_skip_round_trip` | `milestone_skip_round_trip.py` | SUCCESSFUL | 2 | SUCCESSFUL | 6 | |
 | `milestone_skip_round_trip_buggy` | `milestone_skip_round_trip_buggy.py` | FAILED | 1 | skipped | — | `next` jumps to 84 instead of 83 |
 
-**Total targets: 44 (20 SUCCESSFUL + 24 FAILED, of which 10 FAILED are the live-bug
-findings A/B/C/D/E/F/G/H/I/J). Every target matches its expected verdict; 0 deviations.**
+**Total targets: 48 (22 SUCCESSFUL + 26 FAILED, of which 10 FAILED are the live-bug
+findings A/B/C/D/E/F/G/H/I/J; the other 16 FAILED are intentional buggy/non-vacuity
+controls). Every target matches its expected verdict; 0 deviations.**
+
+The two review/approval **security invariants** (`gate_approval_integrity`,
+`vote_authorization_invariant`) are SUCCESSFUL — *proofs of absence*, not findings.
+Their `*_buggy` counterparts (relaxed approval threshold; dropped self-certify
+check) FAIL as expected, confirming the invariants are non-vacuous. See the
+"Security invariants" section below.
 
 ---
 
@@ -527,3 +538,50 @@ well-formed ranges; the postcondition holds.  Because this target shares the
 buggy Findings' harness shape but asserts the property they fail, the
 SUCCESSFUL verdict confirms the buggy harnesses are non-vacuous (the assertion
 is reachable and genuinely discriminating).
+
+---
+
+## Security invariants (proofs of absence)
+
+Beyond the input-validation findings, two high-impact properties of the
+review/approval workflow were modelled and **proven** with ESBMC. Both are
+SUCCESSFUL — i.e. no counterexample exists within the model — and each has a
+paired `*_buggy` control that FAILs, so the proof is non-vacuous. These are not
+bugs; they are formal evidence that the crown-jewel access-control logic is sound.
+
+### Gate-approval integrity — `internals/approval_defs.py:_calc_gate_state`
+
+**Invariant**: the vote tally returns `APPROVED` only when ≥ threshold genuine
+`APPROVED` votes were cast (1 for `ONE_LGTM`, 3 for `THREE_LGTM`) and no `NA` vote
+is present — i.e. the tally cannot manufacture a spurious approval (no "approved
+with zero/insufficient sign-offs", no "3-LGTM gate approved by one person").
+
+`gate_approval_integrity.py` models `_calc_gate_state` over symbolic vote counts
+and asserts `state == APPROVED ⟹ n_approved >= threshold and n_na == 0`. **Phase 1
+SUCCESSFUL (2 VCC), Phase 2 SUCCESSFUL (7 VCC).** The buggy control relaxes the
+`THREE_LGTM` threshold to `>= 1`; ESBMC returns FAILED for `threshold = THREE_LGTM,
+n_approved = 1`, confirming the assertion discriminates.
+
+*Modelling note*: vote counts are bounded (≤ 1000 — far above any real gate);
+the unbounded model triggered a spurious CWE-190 overflow on the count sum, a
+modelling artifact rather than a property of the code.
+
+### Vote authorization — `api/reviews_api.py:VotesAPI.require_permissions`
+
+**Invariant**: (A) only an approver may cast a *negative* verdict (`DENIED`,
+`NEEDS_WORK`, `REVIEW_STARTED`, `INTERNAL_REVIEW`); (B) a non-approver may reach an
+*approving* state (`NA`, `APPROVED`, `NA_SELF`, `NA_VERIFIED`) only as a
+self-certify-eligible editor.
+
+`vote_authorization_invariant.py` models `require_permissions` and asserts both
+derived properties over every vote state and every (editor, approver, eligible)
+combination. **Phase 1 SUCCESSFUL (3 VCC), Phase 2 SUCCESSFUL (3 VCC).** The buggy
+control drops the `self_certify.is_eligible(gate)` check from the approving branch
+(letting any editor self-approve any gate); ESBMC returns FAILED via property (B),
+confirming non-vacuity.
+
+Together with the manual audit (which found the surrounding handlers correctly
+gated), these proofs establish that the end-to-end property "only authorized
+reviewers can drive a gate to `APPROVED`" holds: only approvers/eligible editors
+can *cast* an approving vote (vote-authorization invariant), and the *tally* cannot
+turn insufficient votes into an approval (gate-approval integrity).
