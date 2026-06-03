@@ -393,7 +393,8 @@ the line-567 sibling.
 
 **Severity**: bare-exception → HTTP 500 defect — same class as Finding A
 ([PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)), which
-the maintainer accepted and fixed; a strong candidate to file upstream.
+the maintainer accepted and fixed. Filed upstream as
+[GoogleChrome/chromium-dashboard#6464](https://github.com/GoogleChrome/chromium-dashboard/issues/6464).
 
 ---
 
