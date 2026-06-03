@@ -64,7 +64,7 @@ range that real callers would supply.
 | Family | Targets | Notes |
 |---|---|---|
 | Tier 1 — pure arithmetic | `is_weekday`, `weekdays_between_approx`, `weekdays_between_loop`, `remaining_days`, `diff_days_and_weeks` (5 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. One harness fix required during run: loop-buggy mutation changed from "drop cap" (structurally undetectable at `calendar_days ≤ 30`) to "init counter=1" (caught at `calendar_days=0`). |
-| Tier 2 — API validation | `channels_start_gt_end_bare_valueerror`, `features_num_zero_silent_acceptance`, `channels_milestone_zero_silent_acceptance`, `votes_state_zero_validator_bypass`, `shipping_features_mstone_zero_silent_acceptance`, `metricsdata_num_zero_returns_all`, `releasenotes_milestone_range_validated` + `metricsdata_num_limit_honored` (positive controls) | Six buggy targets Phase 1 FAILED as expected — counterexamples are the defect witnesses (Findings A/B/C/D/E/F). Two positive controls are SUCCESSFUL: `releasenotes` verifies the milestone-range postcondition Findings A/C violate, and `metricsdata_num_limit_honored` verifies the `if num is not None` fix for Finding F — both confirming the buggy harnesses are non-vacuous. A maintainer opened fix PRs ([#6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) / [#6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)) resolving Findings A and D, each adopting our proposed fix. See REPORT.md. |
+| Tier 2 — API validation | `channels_start_gt_end_bare_valueerror`, `features_num_zero_silent_acceptance`, `channels_milestone_zero_silent_acceptance`, `votes_state_zero_validator_bypass`, `shipping_features_mstone_zero_silent_acceptance`, `metricsdata_num_zero_returns_all`, `features_patch_missing_feature_changes_http500`, `releasenotes_milestone_range_validated` + `metricsdata_num_limit_honored` + `features_patch_body_shape_validated` (positive controls) | Seven buggy targets Phase 1 FAILED as expected — counterexamples are the defect witnesses (Findings A/B/C/D/E/F/G). Three positive controls are SUCCESSFUL: `releasenotes` verifies the milestone-range postcondition Findings A/C violate, `metricsdata_num_limit_honored` verifies the `if num is not None` fix for Finding F, and `features_patch_body_shape_validated` verifies the body-shape guard for Finding G — all confirming the buggy harnesses are non-vacuous. A maintainer opened fix PRs ([#6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) / [#6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)) resolving Findings A and D, each adopting our proposed fix. See REPORT.md. |
 | Tier 3 — self-certify contracts | `is_privacy_eligible`, `is_testing_eligible`, `is_adoption_eligible`, `is_eligible_dispatch` (4 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Dispatch harness originally required scalar-arg workaround for esbmc/esbmc#5022; restored to list comprehension after upstream fix in esbmc/esbmc#5023 (2026-06-01). |
 | Tier 4 — SLO state machine | `record_vote_index_safety`, `record_vote_changed_flag`, `record_comment_idempotent`, `overdue_detection` (4 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Row 12 (`changed`-flag invariant) models the five field-mutation sites of `record_vote`; the buggy variant exercises a spurious `True → False` toggle. Row 15 (`record_comment` idempotency) verifies the initial response is recorded exactly once; the buggy variant drops the already-responded guard. |
 | Tier 5 — milestone arithmetic | `milestone_skip_round_trip` (1 pair) | Phase 1 + Phase 2 SUCCESSFUL; buggy variant FAILED. Round-trip invariant: `next(prev(n)) == n` and `prev(next(n)) == n` for all n ≠ 82 in [1, 200]. |
@@ -283,6 +283,40 @@ limit (including `0`) always bounds the result.
 
 ---
 
+### Finding G — `FeaturesAPI.do_patch`: malformed PATCH body → KeyError → HTTP 500 (not 400)
+
+**Source**: `api/features_api.py:549-557`
+
+```python
+body = self.get_json_param_dict()          # {} for missing/invalid JSON
+if 'id' not in body['feature_changes']:    # unguarded → KeyError if key absent
+    self.abort(400, msg='Missing feature ID in feature updates')
+...
+stage_ids = [s['id'] for s in body['stages'] if 'id' in s]   # sibling (:567)
+```
+
+`do_patch` indexes `body['feature_changes']` with no presence guard, so a
+`PATCH /api/v0/features/<id>` whose body omits the key (e.g. `{}`) raises
+`KeyError`. `APIHandler.patch` has no `except` around `do_patch`, so it surfaces
+as **HTTP 500** instead of 400. Same bare-exception class as Finding A — the one
+the maintainer fixed in [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) —
+found by sweeping `api/` for user input reaching an uncaught exception. Requires
+sign-in + XSRF (any authenticated user). The `body['stages']` access at line 567
+is the same class.
+
+**ESBMC harness**: model key-presence as a nondet bool; the current code raises
+`KeyError` on the absent path; assert the handler should return HTTP 400. The
+assertion fails → counterexample is the witness. The paired good harness adds the
+presence guard and is SUCCESSFUL.
+
+**Proposed fix**: `if 'feature_changes' not in body: self.abort(400, ...)` before
+the access; default `body.get('stages', [])` for the sibling.
+
+**Severity**: bare-exception → HTTP 500 — same class as Finding A (PR #6451,
+accepted/fixed by the maintainer); a strong candidate to file upstream.
+
+---
+
 ### Positive control — `ReleaseNotesL10nAPI.do_get`: milestone-range check done right
 
 **Source**: `api/releasenotes_api.py:37-51`
@@ -306,6 +340,7 @@ postcondition Findings A/C violate, confirming the buggy harnesses discriminate.
 | D | `reviews_api.py:78` `VotesAPI.do_post` | `state=0` / `state=false` | Falsy value skips `Vote.is_valid_state` + int check in `get_param`/`get_int_param` (lines 124/141); reaches `set_vote`, which raises a bare `ValueError` (approval_defs.py:467) → HTTP 500 (same class as Finding A), not recorded | Test `val is not None` instead of `val` in the guards; `set_vote` should `abort(400)` not bare-raise. **Maintainer fix PR open upstream: [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452).** |
 | E | `shipping_features_api.py:58` `ShippingFeaturesAPI.do_get` | `mstone=0` | `get_int_arg` admits 0; `is None` guard passes; milestone 0 matches no stage → empty lists, HTTP 200, no error signal | Add `if milestone < 1: self.abort(400, ...)` after the `is None` guard, or a `get_int_arg` `min_value` param |
 | F | `metricsdata.py:199` `FeatureHandler.get_template_data` | `num=0` | `get_int_arg` admits 0; `if num:` truthiness guard skips `properties[:num]` → all datapoints returned, HTTP 200 (inverse of B) | Replace `if num:` with `if num is not None:` so a provided limit (incl. 0) bounds the result |
+| G | `features_api.py:552` `FeaturesAPI.do_patch` | PATCH body without `feature_changes` (e.g. `{}`) | Unguarded `body['feature_changes']` → KeyError; no `except` around `do_patch` → HTTP 500 instead of 400 (same bare-exception class as A) | `if 'feature_changes' not in body: self.abort(400, ...)` before the access; default `body.get('stages', [])` for the :567 sibling |
 
 ---
 

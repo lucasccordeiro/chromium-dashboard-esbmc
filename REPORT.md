@@ -30,6 +30,8 @@ Verifier: ESBMC 8.3.0+.
 | `releasenotes_milestone_range_validated` | `releasenotes_milestone_range_validated.py` | SUCCESSFUL | 3 | SUCCESSFUL | 6 | positive control: correct milestone-range check |
 | `metricsdata_num_zero_returns_all` | `metricsdata_num_zero_returns_all.py` | **FAILED** | 1 | skipped | — | **Finding F — live bug** |
 | `metricsdata_num_limit_honored` | `metricsdata_num_limit_honored.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: `if num is not None` honors the limit |
+| `features_patch_missing_feature_changes_http500` | `features_patch_missing_feature_changes_http500.py` | **FAILED** | 1 | skipped | — | **Finding G — live bug** |
+| `features_patch_body_shape_validated` | `features_patch_body_shape_validated.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: body-shape guard returns 400, never 500 |
 | `is_privacy_eligible` | `is_privacy_eligible.py` | SUCCESSFUL | 4 | SUCCESSFUL | 4 | |
 | `is_privacy_eligible_buggy` | `is_privacy_eligible_buggy.py` | FAILED | 1 | skipped | — | explanation check dropped |
 | `is_testing_eligible` | `is_testing_eligible.py` | SUCCESSFUL | 7 | SUCCESSFUL | 7 | |
@@ -49,8 +51,8 @@ Verifier: ESBMC 8.3.0+.
 | `milestone_skip_round_trip` | `milestone_skip_round_trip.py` | SUCCESSFUL | 2 | SUCCESSFUL | 6 | |
 | `milestone_skip_round_trip_buggy` | `milestone_skip_round_trip_buggy.py` | FAILED | 1 | skipped | — | `next` jumps to 84 instead of 83 |
 
-**Total targets: 36 (16 SUCCESSFUL + 20 FAILED, of which 6 FAILED are the live-bug
-findings A/B/C/D/E/F). Every target matches its expected verdict; 0 deviations.**
+**Total targets: 38 (17 SUCCESSFUL + 21 FAILED, of which 7 FAILED are the live-bug
+findings A/B/C/D/E/F/G). Every target matches its expected verdict; 0 deviations.**
 
 ---
 
@@ -338,6 +340,60 @@ limit (including `0`) always bounds the result.
 
 **Severity**: silent-acceptance defect — same benign class as Finding B (#6442,
 closed won't-fix), so **not filed upstream** as a standalone bug.
+
+---
+
+### Finding G — `features_api.py:552` `FeaturesAPI.do_patch` — malformed PATCH body → KeyError → HTTP 500 (not 400)
+
+**Source**: `api/features_api.py:549-557`, `framework/basehandlers.py:285`
+
+```python
+body = self.get_json_param_dict()          # {} for missing/invalid JSON
+if 'id' not in body['feature_changes']:    # unguarded dict access → KeyError
+    self.abort(400, msg='Missing feature ID in feature updates')
+...
+stage_ids = [s['id'] for s in body['stages'] if 'id' in s]   # sibling KeyError (:567)
+```
+
+`get_json_param_dict()` returns the raw request JSON, or `{}` for a
+missing/invalid body. `do_patch` then indexes `body['feature_changes']` with no
+presence guard, so a `PATCH /api/v0/features/<id>` whose body lacks the
+`feature_changes` key — including an empty `{}` — raises `KeyError`.
+`APIHandler.patch` (`basehandlers.py:285-289`) calls `do_patch` with **no
+`except`**, so the exception propagates to Flask and becomes **HTTP 500** instead
+of the HTTP 400 the maintainer's `api/` convention requires.
+
+This is the same bare-exception class as Finding A — the one the maintainer fixed
+in [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) —
+found by sweeping every `api/` handler for user input that reaches an uncaught
+exception. The endpoint requires sign-in + XSRF, so the surface is any
+authenticated user. The sibling `body['stages']` access at line 567 is the same
+class (KeyError when `stages` is omitted).
+
+**ESBMC counterexample** (`features_patch_missing_feature_changes_http500.py`,
+Phase 1 FAILED, 1 VCC):
+
+```
+Violated property:
+  file features_patch_missing_feature_changes_http500.py
+  assertion: missing 'feature_changes' should have been an HTTP 400 abort
+
+  has_feature_changes = 0  (body lacks the key; do_patch raises KeyError → 500)
+```
+
+The paired good harness `features_patch_body_shape_validated.py` models the fix
+(presence guard before access) and verifies every body shape yields a clean HTTP
+code (400 for a malformed body, never an uncaught exception) — SUCCESSFUL in both
+phases. Confirmed empirically under CPython
+(`reproducer/finding_g_features_patch_missing_key.py`).
+
+**Proposed fix**: `if 'feature_changes' not in body: self.abort(400, msg='Missing
+feature_changes')` before the access, and default `body.get('stages', [])` for
+the line-567 sibling.
+
+**Severity**: bare-exception → HTTP 500 defect — same class as Finding A
+([PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)), which
+the maintainer accepted and fixed; a strong candidate to file upstream.
 
 ---
 
