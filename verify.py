@@ -161,6 +161,29 @@ TARGETS: list[Target] = [
         expected="FAILED",
         safety_expected=None,
     ),
+    Target(
+        # Finding E: shipping_features_api.py:58
+        # get_int_arg('mstone') admits 0; the handler guards only
+        # `milestone is None`, so ?mstone=0 passes. _get_shipping_stages(0)
+        # matches no stage and do_get returns empty feature lists with HTTP 200
+        # (no error signal). Same silent-acceptance class as Findings B and C.
+        # Contract: mstone >= 1 should be enforced; assertion fails at mstone=0.
+        name="shipping_features_mstone_zero_silent_acceptance",
+        entry="shipping_features_mstone_zero_silent_acceptance.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+    Target(
+        # Positive control: releasenotes_api.py:37-51 implements the
+        # milestone-range check correctly — rejects non-positive milestones
+        # and the inverted range with a clean abort(400), the canonical fix
+        # shape for Findings A and C. Postcondition: any range that proceeds
+        # (code==200) is well-formed (start>=1, end>=1, start<=end). Holds.
+        name="releasenotes_milestone_range_validated",
+        entry="releasenotes_milestone_range_validated.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
 
     # --- Tier 3: self-certify logic contracts ---
 

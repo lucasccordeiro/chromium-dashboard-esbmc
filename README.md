@@ -11,7 +11,7 @@ Modelled on the
 
 ## Status
 
-**32 verification targets** across five tiers — pure date/integer arithmetic
+**34 verification targets** across five tiers — pure date/integer arithmetic
 helpers (`is_weekday`, `weekdays_between`, `remaining_days`, `diff_days`,
 `diff_weeks`), HTTP API input-validation paths, self-certify boolean
 contracts (`is_privacy_eligible`, `is_testing_eligible`,
@@ -22,7 +22,7 @@ idempotency, overdue-detection arithmetic), and milestone arithmetic
 `make verify` (two phases per target) completes in under 30 seconds
 with 0 failures.
 
-**Four live API-validation findings** confirmed by ESBMC counterexamples
+**Five live API-validation findings** confirmed by ESBMC counterexamples
 and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
 **Two have maintainer fix PRs open upstream**: a maintainer opened
 [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)
@@ -35,6 +35,7 @@ and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
 | B | `api/features_api.py:117` | `?num=0` | `get_int_arg` admits 0 → **silent empty page** (HTTP 200, no error signal) | [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442) | closed — won't fix (benign) |
 | C | `api/channels_api.py:138` | `?start=0` / `?end=0` | Milestone 0 accepted → **null dates** returned (HTTP 200, no error signal) | [#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443) | — |
 | D | `api/reviews_api.py:78` | `{"state": 0}` / `false` | Falsy value skips `Vote.is_valid_state` (`get_param`/`get_int_param` `val and …` short-circuit) → `set_vote` bare `ValueError` → **HTTP 500** instead of HTTP 400 | [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447) | [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452) (open) |
+| E | `api/shipping_features_api.py:58` | `?mstone=0` | `get_int_arg` admits 0; handler guards only `is None` → **empty feature lists** (HTTP 200, no error signal) | _filed: pending_ | — |
 
 **Worked example — Finding B (`?num=0` silent-acceptance, [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442)).**
 `GET /api/v0/features?num=0` is a reasonable user mistake (or a fuzzer
@@ -62,8 +63,8 @@ Proposed fix: replace `raise ValueError` with
 `self.abort(400, msg='start must be <= end')`.
 Same class as vLLM Finding #4 (bare `AssertionError` in `BlockPool.__init__`
 instead of a clean `ValueError`).
-**Fixed upstream** in [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)
-(open as of 2026-06-03): the maintainer replaced `raise ValueError` with
+**Maintainer fix PR open upstream** ([PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451),
+open as of 2026-06-03): the maintainer replaced `raise ValueError` with
 `self.abort(400, 'start is greater than end')` — the fix we proposed — and added
 a regression test asserting HTTP 400.
 
@@ -90,12 +91,37 @@ pins the helper bypass (`assertion is_valid_state(state)` violated at
 → 500 mechanism as Finding A ([#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441)).
 Proposed fix: test `val is not None` instead of `val` in the `get_param`/
 `get_int_param` guards; `set_vote` should `self.abort(400, …)` not bare-raise.
-**Fixed upstream** in [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)
-(open as of 2026-06-03): the maintainer changed both `get_param` guards from
+**Maintainer fix PR open upstream** ([PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452),
+open as of 2026-06-03): the maintainer changed both `get_param` guards from
 `if val and …` to `if val is not None and …` — the exact fix we proposed —
 with the rationale "we should validate whenever an expected int parameter is
 found, even if it is 0." This rejects the falsy `state` at the API boundary, so
 `set_vote`'s bare `ValueError` is no longer reached on this path.
+
+**Finding E — silent acceptance of `?mstone=0` (HTTP 200 empty page).**
+`api/shipping_features_api.py:58` (`ShippingFeaturesAPI.do_get`) reads
+`milestone = self.get_int_arg('mstone')` and guards only `if milestone is None`.
+`get_int_arg` rejects negatives but admits `0`, and `0 is None` is `False`, so
+`?mstone=0` passes the guard. `_get_shipping_stages(0)` matches no stage
+(milestone 0 has none), so `do_get` returns
+`{"complete_features": [], "incomplete_features": []}` with **HTTP 200** and no
+error signal. The `harness/shipping_features_mstone_zero_silent_acceptance.py`
+counterexample pins this (`assertion mstone >= 1` violated at `mstone = 0`).
+Same `get_int_arg`-admits-`0` silent-acceptance class as Findings B and C, in a
+fifth endpoint — the `is None` guard shows the author handled the missing case
+but not the invalid-zero case. Proposed fix: add `if milestone < 1:
+self.abort(400, …)` after the `is None` guard, or give `get_int_arg` a
+`min_value` parameter (which would fix B, C, and E at once).
+
+**Positive control — `releasenotes_api.py` does the milestone-range check right.**
+`api/releasenotes_api.py:37-51` (`ReleaseNotesL10nAPI.do_get`) reads the same
+`startMilestone`/`endMilestone` pair through `get_int_arg` but then rejects
+non-positive milestones *and* the inverted range with a clean `abort(400)` —
+the exact fix shape proposed for Findings A and C. The
+`harness/releasenotes_milestone_range_validated.py` target verifies the
+postcondition Findings A/C violate (every range that proceeds has
+`start >= 1`, `end >= 1`, `start <= end`) and returns **SUCCESSFUL**, confirming
+the buggy targets' harness shape is non-vacuous.
 
 **ESBMC-Python bug encountered and fixed upstream.**
 `nondet_bool()` inside a list comprehension produced a fresh symbolic
@@ -140,6 +166,8 @@ harness/
   channels_start_gt_end_bare_valueerror.py  # Finding A — live bug       (FAILED)
   features_num_zero_silent_acceptance.py    # Finding B — live bug       (FAILED)
   channels_milestone_zero_silent_acceptance.py  # Finding C — live bug   (FAILED)
+  shipping_features_mstone_zero_silent_acceptance.py # Finding E — live bug (FAILED)
+  releasenotes_milestone_range_validated.py # positive control: range check (SUCCESSFUL)
   is_privacy_eligible.py                # internals/self_certify.py:73   (SUCCESSFUL)
   is_privacy_eligible_buggy.py          #   explanation check dropped    (FAILED)
   is_testing_eligible.py                # internals/self_certify.py:82   (SUCCESSFUL)
@@ -175,6 +203,9 @@ ROADMAP.md                  # tiered plan: targets, rationale, recommended seque
 | `channels_start_gt_end_bare_valueerror` | `channels_start_gt_end_bare_valueerror.py` | **2 ✗ (Finding A)** | — |
 | `features_num_zero_silent_acceptance` | `features_num_zero_silent_acceptance.py` | **1 ✗ (Finding B)** | — |
 | `channels_milestone_zero_silent_acceptance` | `channels_milestone_zero_silent_acceptance.py` | **1 ✗ (Finding C)** | — |
+| `votes_state_zero_validator_bypass` | `votes_state_zero_validator_bypass.py` | **1 ✗ (Finding D)** | — |
+| `shipping_features_mstone_zero_silent_acceptance` | `shipping_features_mstone_zero_silent_acceptance.py` | **1 ✗ (Finding E)** | — |
+| `releasenotes_milestone_range_validated` | `releasenotes_milestone_range_validated.py` | 3 ✓ | 6 ✓ |
 | `is_privacy_eligible` | `is_privacy_eligible.py` | 4 ✓ | 4 ✓ |
 | `is_privacy_eligible_buggy` | `is_privacy_eligible_buggy.py` | 1 ✗ | — |
 | `is_testing_eligible` | `is_testing_eligible.py` | 7 ✓ | 7 ✓ |

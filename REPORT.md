@@ -26,6 +26,8 @@ Verifier: ESBMC 8.3.0+.
 | `features_num_zero_silent_acceptance` | `features_num_zero_silent_acceptance.py` | **FAILED** | 1 | skipped | — | **Finding B — live bug** |
 | `channels_milestone_zero_silent_acceptance` | `channels_milestone_zero_silent_acceptance.py` | **FAILED** | 1 | skipped | — | **Finding C — live bug** |
 | `votes_state_zero_validator_bypass` | `votes_state_zero_validator_bypass.py` | **FAILED** | 1 | skipped | — | **Finding D — live bug** |
+| `shipping_features_mstone_zero_silent_acceptance` | `shipping_features_mstone_zero_silent_acceptance.py` | **FAILED** | 1 | skipped | — | **Finding E — live bug** |
+| `releasenotes_milestone_range_validated` | `releasenotes_milestone_range_validated.py` | SUCCESSFUL | 3 | SUCCESSFUL | 6 | positive control: correct milestone-range check |
 | `is_privacy_eligible` | `is_privacy_eligible.py` | SUCCESSFUL | 4 | SUCCESSFUL | 4 | |
 | `is_privacy_eligible_buggy` | `is_privacy_eligible_buggy.py` | FAILED | 1 | skipped | — | explanation check dropped |
 | `is_testing_eligible` | `is_testing_eligible.py` | SUCCESSFUL | 7 | SUCCESSFUL | 7 | |
@@ -45,8 +47,8 @@ Verifier: ESBMC 8.3.0+.
 | `milestone_skip_round_trip` | `milestone_skip_round_trip.py` | SUCCESSFUL | 2 | SUCCESSFUL | 6 | |
 | `milestone_skip_round_trip_buggy` | `milestone_skip_round_trip_buggy.py` | FAILED | 1 | skipped | — | `next` jumps to 84 instead of 83 |
 
-**Total targets: 32 (14 SUCCESSFUL + 18 FAILED, of which 4 FAILED are the live-bug
-findings A/B/C/D). Every target matches its expected verdict; 0 deviations.**
+**Total targets: 34 (15 SUCCESSFUL + 19 FAILED, of which 5 FAILED are the live-bug
+findings A/B/C/D/E). Every target matches its expected verdict; 0 deviations.**
 
 ---
 
@@ -243,3 +245,77 @@ and does not apply the defense-in-depth `abort(400)` in `set_vote`.
 
 **Severity**: validation-bypass → HTTP 500 defect — same bare-raise → 500 class
 as Finding A.
+
+---
+
+### Finding E — `shipping_features_api.py:58` `ShippingFeaturesAPI.do_get` — `?mstone=0` silent-acceptance (HTTP 200 empty page)
+
+**Source**: `api/shipping_features_api.py:58`, `framework/basehandlers.py:182`
+
+```python
+milestone = self.get_int_arg('mstone')
+if milestone is None:
+    self.abort(400, msg='No milestone provided.')
+shipping_stages = self._get_shipping_stages(milestone)
+if len(shipping_stages) == 0:
+    return {'complete_features': [], 'incomplete_features': []}   # HTTP 200
+```
+
+`get_int_arg('mstone')` rejects `< 0` but admits `0`.  The handler guards only
+`milestone is None`, and `0 is None` is `False`, so `?mstone=0` passes.
+`_get_shipping_stages(0)` queries `Stage.milestones.*_first == 0`; no stage
+ships at milestone 0, so the query returns `[]` and `do_get` takes the
+`len == 0` early return — **HTTP 200** with empty feature lists and no error
+signal.  The `is None` guard shows the author handled the missing-parameter
+case but not the invalid-zero case.
+
+**ESBMC counterexample** (`shipping_features_mstone_zero_silent_acceptance.py`,
+Phase 1 FAILED, 1 VCC):
+
+```
+Violated property:
+  file shipping_features_mstone_zero_silent_acceptance.py
+  assertion mstone >= 1
+
+  mstone = 0  (admitted by get_int_arg; do_get returns empty lists, HTTP 200)
+```
+
+Confirmed empirically under CPython
+(`reproducer/finding_e_shipping_mstone_zero.py`).
+
+**Proposed fix**: add `if milestone < 1: self.abort(400, msg='Milestone number
+must be >= 1')` after the `is None` guard, or give `get_int_arg` a `min_value`
+parameter — which would fix Findings B, C, and E at a single site.
+
+**Severity**: silent-acceptance defect — same `get_int_arg`-admits-`0` class as
+Findings B and C, in a fifth endpoint.
+
+---
+
+### Positive control — `releasenotes_api.py:37-51` `ReleaseNotesL10nAPI.do_get` — milestone-range check done correctly
+
+**Source**: `api/releasenotes_api.py:37-51`
+
+```python
+start_milestone = self.get_int_arg('startMilestone')
+end_milestone   = self.get_int_arg('endMilestone')
+if start_milestone is None: self.abort(400, msg='Missing startMilestone')
+if end_milestone   is None: self.abort(400, msg='Missing endMilestone')
+if start_milestone <= 0 or end_milestone <= 0:
+    self.abort(400, msg='Milestones must be positive integers')
+if start_milestone > end_milestone:
+    self.abort(400, msg='startMilestone must be <= endMilestone')
+```
+
+This is the canonical correct shape of the milestone-range check: it rejects
+non-positive milestones **and** the inverted range with a clean `abort(400)` —
+exactly the fix proposed for Findings A and C, but already present here.  The
+target verifies the postcondition Findings A/C violate: every range that
+proceeds (`code == 200`) satisfies `start >= 1`, `end >= 1`, `start <= end`.
+
+**ESBMC verdict** (`releasenotes_milestone_range_validated.py`,
+Phase 1 SUCCESSFUL 3 VCCs, Phase 2 SUCCESSFUL 6 VCCs): the gate admits only
+well-formed ranges; the postcondition holds.  Because this target shares the
+buggy Findings' harness shape but asserts the property they fail, the
+SUCCESSFUL verdict confirms the buggy harnesses are non-vacuous (the assertion
+is reachable and genuinely discriminating).
