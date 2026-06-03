@@ -64,7 +64,7 @@ range that real callers would supply.
 | Family | Targets | Notes |
 |---|---|---|
 | Tier 1 — pure arithmetic | `is_weekday`, `weekdays_between_approx`, `weekdays_between_loop`, `remaining_days`, `diff_days_and_weeks` (5 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. One harness fix required during run: loop-buggy mutation changed from "drop cap" (structurally undetectable at `calendar_days ≤ 30`) to "init counter=1" (caught at `calendar_days=0`). |
-| Tier 2 — API validation | `channels_start_gt_end_bare_valueerror`, `features_num_zero_silent_acceptance`, `channels_milestone_zero_silent_acceptance`, `votes_state_zero_validator_bypass`, `shipping_features_mstone_zero_silent_acceptance`, `metricsdata_num_zero_returns_all`, `features_patch_missing_feature_changes_http500`, `releasenotes_milestone_range_validated` + `metricsdata_num_limit_honored` + `features_patch_body_shape_validated` (positive controls) | Seven buggy targets Phase 1 FAILED as expected — counterexamples are the defect witnesses (Findings A/B/C/D/E/F/G). Three positive controls are SUCCESSFUL: `releasenotes` verifies the milestone-range postcondition Findings A/C violate, `metricsdata_num_limit_honored` verifies the `if num is not None` fix for Finding F, and `features_patch_body_shape_validated` verifies the body-shape guard for Finding G — all confirming the buggy harnesses are non-vacuous. A maintainer opened fix PRs ([#6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) / [#6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)) resolving Findings A and D, each adopting our proposed fix. See REPORT.md. |
+| Tier 2 — API validation | 10 buggy witnesses (`channels_start_gt_end_bare_valueerror`, `features_num_zero_silent_acceptance`, `channels_milestone_zero_silent_acceptance`, `votes_state_zero_validator_bypass`, `shipping_features_mstone_zero_silent_acceptance`, `metricsdata_num_zero_returns_all`, `features_patch_missing_feature_changes_http500`, `stages_post_malformed_stage_type_http500`, `comments_patch_missing_comment_http500`, `intents_post_unknown_key_http500`) + 6 positive controls (`releasenotes_milestone_range_validated`, `metricsdata_num_limit_honored`, `features_patch_body_shape_validated`, `stages_post_stage_type_validated`, `comments_patch_comment_existence_validated`, `intents_post_body_validated`) | Ten buggy targets Phase 1 FAILED as expected — counterexamples are the defect witnesses (Findings A/B/C/D/E/F/G/H/I/J). Six positive controls are SUCCESSFUL, each modelling the fix for a finding (or the canonical correct check), confirming the buggy harnesses are non-vacuous. A maintainer opened fix PRs ([#6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) / [#6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)) resolving Findings A and D; Finding G filed as [#6464](https://github.com/GoogleChrome/chromium-dashboard/issues/6464); H/I/J drafted for upstream. See REPORT.md. |
 | Tier 3 — self-certify contracts | `is_privacy_eligible`, `is_testing_eligible`, `is_adoption_eligible`, `is_eligible_dispatch` (4 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Dispatch harness originally required scalar-arg workaround for esbmc/esbmc#5022; restored to list comprehension after upstream fix in esbmc/esbmc#5023 (2026-06-01). |
 | Tier 4 — SLO state machine | `record_vote_index_safety`, `record_vote_changed_flag`, `record_comment_idempotent`, `overdue_detection` (4 pairs) | All Phase 1 + Phase 2 SUCCESSFUL; buggy variants all FAILED. Row 12 (`changed`-flag invariant) models the five field-mutation sites of `record_vote`; the buggy variant exercises a spurious `True → False` toggle. Row 15 (`record_comment` idempotency) verifies the initial response is recorded exactly once; the buggy variant drops the already-responded guard. |
 | Tier 5 — milestone arithmetic | `milestone_skip_round_trip` (1 pair) | Phase 1 + Phase 2 SUCCESSFUL; buggy variant FAILED. Round-trip invariant: `next(prev(n)) == n` and `prev(next(n)) == n` for all n ≠ 82 in [1, 200]. |
@@ -318,6 +318,31 @@ accepted/fixed by the maintainer). Filed upstream as
 
 ---
 
+### Findings H, I, J — three more bare-exception → HTTP 500 sites (same `api/` sweep)
+
+The sweep that produced Finding G surfaced three further `do_*` handlers where
+user input reaches an uncaught exception. All three are modelled the same way
+(witness `*_http500.py` FAILED + positive control `*_validated.py` SUCCESSFUL),
+with a CPython reproducer and an upstream-issue draft under `bug-reports/`.
+
+- **H — `stages_api.py:101` `StagesAPI.do_post`.** `int(body['stage_type']['value'])`
+  after a presence-only guard → TypeError/KeyError/ValueError on a malformed
+  `stage_type`. Fix: validate `isinstance(st, dict) and 'value' in st`, then wrap
+  `int(...)` in `try/except → self.abort(400, ...)`.
+- **I — `comments_api.py:175` `CommentsAPI.do_patch`.** `get_by_id` returns None for
+  an unknown `commentId`; the 403 guard short-circuits; `None.deleted_by` →
+  AttributeError → HTTP 500 (should be 404). Fix:
+  `if comment is None: self.abort(404, ...)`.
+- **J — `intents_api.py:176` `IntentsAPI.do_post`.** `PostIntentRequest(**get_json())`
+  → TypeError on any extra key (model accepts only `gate_id`/`intent_cc_emails`).
+  Fix: `PostIntentRequest.from_dict(get_json() or {})` inside `try/except →
+  self.abort(400, ...)`.
+
+All three are the maintainer-accepted bare-exception class (cf. PR #6451 / #6464);
+drafted for upstream, not yet filed.
+
+---
+
 ### Positive control — `ReleaseNotesL10nAPI.do_get`: milestone-range check done right
 
 **Source**: `api/releasenotes_api.py:37-51`
@@ -342,6 +367,9 @@ postcondition Findings A/C violate, confirming the buggy harnesses discriminate.
 | E | `shipping_features_api.py:58` `ShippingFeaturesAPI.do_get` | `mstone=0` | `get_int_arg` admits 0; `is None` guard passes; milestone 0 matches no stage → empty lists, HTTP 200, no error signal | Add `if milestone < 1: self.abort(400, ...)` after the `is None` guard, or a `get_int_arg` `min_value` param |
 | F | `metricsdata.py:199` `FeatureHandler.get_template_data` | `num=0` | `get_int_arg` admits 0; `if num:` truthiness guard skips `properties[:num]` → all datapoints returned, HTTP 200 (inverse of B) | Replace `if num:` with `if num is not None:` so a provided limit (incl. 0) bounds the result |
 | G | `features_api.py:552` `FeaturesAPI.do_patch` | PATCH body without `feature_changes` (e.g. `{}`) | Unguarded `body['feature_changes']` → KeyError; no `except` around `do_patch` → HTTP 500 instead of 400 (same bare-exception class as A) | `if 'feature_changes' not in body: self.abort(400, ...)` before the access; default `body.get('stages', [])` for the :567 sibling |
+| H | `stages_api.py:101` `StagesAPI.do_post` | `stage_type` not a `{value:int}` dict (presence-only guard) | `int(body['stage_type']['value'])` → TypeError/KeyError/ValueError → HTTP 500 instead of 400 | Validate `isinstance(st, dict) and 'value' in st`, wrap `int(...)` in `try/except → abort(400)` |
+| I | `comments_api.py:175` `CommentsAPI.do_patch` | unknown `commentId` | `get_by_id`→None, 403 guard short-circuits, `None.deleted_by` → AttributeError → HTTP 500 instead of 404 | `if comment is None: self.abort(404, ...)` |
+| J | `intents_api.py:176` `IntentsAPI.do_post` | body with any extra key | `PostIntentRequest(**body)` → TypeError (unexpected kwarg) → HTTP 500 instead of 400 | `PostIntentRequest.from_dict(get_json() or {})` inside `try/except → abort(400)` |
 
 ---
 

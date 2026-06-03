@@ -32,6 +32,12 @@ Verifier: ESBMC 8.3.0+.
 | `metricsdata_num_limit_honored` | `metricsdata_num_limit_honored.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: `if num is not None` honors the limit |
 | `features_patch_missing_feature_changes_http500` | `features_patch_missing_feature_changes_http500.py` | **FAILED** | 1 | skipped | — | **Finding G — live bug** |
 | `features_patch_body_shape_validated` | `features_patch_body_shape_validated.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: body-shape guard returns 400, never 500 |
+| `stages_post_malformed_stage_type_http500` | `stages_post_malformed_stage_type_http500.py` | **FAILED** | 1 | skipped | — | **Finding H — live bug** |
+| `stages_post_stage_type_validated` | `stages_post_stage_type_validated.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: stage_type shape/type guard |
+| `comments_patch_missing_comment_http500` | `comments_patch_missing_comment_http500.py` | **FAILED** | 1 | skipped | — | **Finding I — live bug** |
+| `comments_patch_comment_existence_validated` | `comments_patch_comment_existence_validated.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: comment-existence guard returns 404 |
+| `intents_post_unknown_key_http500` | `intents_post_unknown_key_http500.py` | **FAILED** | 1 | skipped | — | **Finding J — live bug** |
+| `intents_post_body_validated` | `intents_post_body_validated.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: tolerant deserialization, never 500 |
 | `is_privacy_eligible` | `is_privacy_eligible.py` | SUCCESSFUL | 4 | SUCCESSFUL | 4 | |
 | `is_privacy_eligible_buggy` | `is_privacy_eligible_buggy.py` | FAILED | 1 | skipped | — | explanation check dropped |
 | `is_testing_eligible` | `is_testing_eligible.py` | SUCCESSFUL | 7 | SUCCESSFUL | 7 | |
@@ -51,8 +57,8 @@ Verifier: ESBMC 8.3.0+.
 | `milestone_skip_round_trip` | `milestone_skip_round_trip.py` | SUCCESSFUL | 2 | SUCCESSFUL | 6 | |
 | `milestone_skip_round_trip_buggy` | `milestone_skip_round_trip_buggy.py` | FAILED | 1 | skipped | — | `next` jumps to 84 instead of 83 |
 
-**Total targets: 38 (17 SUCCESSFUL + 21 FAILED, of which 7 FAILED are the live-bug
-findings A/B/C/D/E/F/G). Every target matches its expected verdict; 0 deviations.**
+**Total targets: 44 (20 SUCCESSFUL + 24 FAILED, of which 10 FAILED are the live-bug
+findings A/B/C/D/E/F/G/H/I/J). Every target matches its expected verdict; 0 deviations.**
 
 ---
 
@@ -395,6 +401,102 @@ the line-567 sibling.
 ([PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)), which
 the maintainer accepted and fixed. Filed upstream as
 [GoogleChrome/chromium-dashboard#6464](https://github.com/GoogleChrome/chromium-dashboard/issues/6464).
+
+---
+
+### Finding H — `stages_api.py:101` `StagesAPI.do_post` — malformed `stage_type` → TypeError/KeyError/ValueError → HTTP 500
+
+**Source**: `api/stages_api.py:98-101`, `framework/basehandlers.py:261`
+
+```python
+body = self.get_json_param_dict()
+if 'stage_type' not in body:
+    self.abort(400, msg='Stage type not specified.')
+stage_type = int(body['stage_type']['value'])   # shape/type NOT validated
+```
+
+The guard checks only that the `stage_type` key is present, not that its value is
+a `{"value": <int>}` dict. `int(body['stage_type']['value'])` then raises
+`TypeError` (non-subscriptable, e.g. `{"stage_type": 5}`), `KeyError` (no `value`,
+e.g. `{"stage_type": {}}`), or `ValueError` (non-numeric, e.g. `{"value": "abc"}`).
+`APIHandler.post` has no `except` around `do_post`, so it becomes **HTTP 500**.
+
+**ESBMC counterexample** (`stages_post_malformed_stage_type_http500.py`, Phase 1
+FAILED, 1 VCC): with `has_stage_type = 1`, `value_is_intish = 0`, the model raises
+and the `assertion code == 400` is violated. The paired good harness
+`stages_post_stage_type_validated.py` (shape/type guard) is SUCCESSFUL. Confirmed
+under CPython (`reproducer/finding_h_stages_malformed_stage_type.py`).
+
+**Proposed fix**: validate `isinstance(st, dict) and 'value' in st`, then wrap
+`int(st['value'])` in `try/except → self.abort(400, ...)`.
+
+**Severity**: bare-exception → HTTP 500 — same class as Finding A/G (PR #6451).
+Drafted for upstream (`bug-reports/finding-h-stages-api-malformed-stage-type-500.md`),
+not yet filed.
+
+---
+
+### Finding I — `comments_api.py:175` `CommentsAPI.do_patch` — missing `commentId` → AttributeError → HTTP 500 (not 404)
+
+**Source**: `api/comments_api.py:165-177`, `framework/basehandlers.py:285`
+
+```python
+comment: Activity = Activity.get_by_id(patch_request.comment_id)   # None if not found
+if not permissions.can_admin_site(user) and (comment and user.email() != comment.author):
+    self.abort(403, ...)            # short-circuits when comment is None
+if patch_request.is_undelete:
+    comment.deleted_by = None       # AttributeError if comment is None
+```
+
+`get_by_id` returns `None` for an unknown `commentId`. The 403 guard does not stop
+it (a site admin makes `not can_admin_site` False; for a non-admin `comment and …`
+is falsy when `comment` is None) — so control reaches `comment.deleted_by = …` on
+`None` → `AttributeError`. `APIHandler.patch` has no `except` → **HTTP 500** (a
+missing comment should be HTTP 404).
+
+**ESBMC counterexample** (`comments_patch_missing_comment_http500.py`, Phase 1
+FAILED, 1 VCC): with `comment_exists = 0` the model takes the uncaught-exception
+outcome (HTTP 500), violating `assertion code == 404`. (`AttributeError` is not an
+ESBMC-Python builtin, so the uncaught outcome is modelled by its HTTP code,
+matching how the abort paths model `self.abort(4xx)` as a returned code.) The
+paired good harness `comments_patch_comment_existence_validated.py` is SUCCESSFUL.
+Confirmed under CPython (`reproducer/finding_i_comments_missing_comment.py`).
+
+**Proposed fix**: `if comment is None: self.abort(404, msg='Comment not found')`.
+
+**Severity**: bare-exception → HTTP 500 — same class as Finding A/G (PR #6451).
+Drafted for upstream (`bug-reports/finding-i-comments-api-missing-comment-500.md`),
+not yet filed.
+
+---
+
+### Finding J — `intents_api.py:176` `IntentsAPI.do_post` — unexpected JSON key → TypeError → HTTP 500
+
+**Source**: `api/intents_api.py:176`, `framework/basehandlers.py:261`
+
+```python
+parsed_args = PostIntentRequest(**self.request.get_json())
+# PostIntentRequest.__init__(self, gate_id=None, intent_cc_emails=None)
+```
+
+The OpenAPI-generated model accepts only `gate_id` / `intent_cc_emails`, so
+splatting raw JSON with any extra key raises `TypeError: __init__() got an
+unexpected keyword argument '<key>'`. `APIHandler.post` has no `except` →
+**HTTP 500** (a malformed body should be HTTP 400).
+
+**ESBMC counterexample** (`intents_post_unknown_key_http500.py`, Phase 1 FAILED,
+1 VCC): with `body_has_unknown_key = 1` the model raises `TypeError` and
+`assertion code == 400` is violated. The paired good harness
+`intents_post_body_validated.py` (tolerant `from_dict` + error conversion) is
+SUCCESSFUL. Confirmed under CPython
+(`reproducer/finding_j_intents_unknown_key.py`).
+
+**Proposed fix**: `PostIntentRequest.from_dict(self.request.get_json() or {})`
+inside `try/except (TypeError, ValueError) → self.abort(400, ...)`.
+
+**Severity**: bare-exception → HTTP 500 — same class as Finding A/G (PR #6451).
+Drafted for upstream (`bug-reports/finding-j-intents-api-unknown-key-500.md`),
+not yet filed.
 
 ---
 
