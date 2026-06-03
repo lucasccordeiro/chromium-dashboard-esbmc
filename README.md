@@ -11,7 +11,7 @@ Modelled on the
 
 ## Status
 
-**36 verification targets** across five tiers — pure date/integer arithmetic
+**38 verification targets** across five tiers — pure date/integer arithmetic
 helpers (`is_weekday`, `weekdays_between`, `remaining_days`, `diff_days`,
 `diff_weeks`), HTTP API input-validation paths, self-certify boolean
 contracts (`is_privacy_eligible`, `is_testing_eligible`,
@@ -22,7 +22,7 @@ idempotency, overdue-detection arithmetic), and milestone arithmetic
 `make verify` (two phases per target) completes in under 30 seconds
 with 0 failures.
 
-**Six live API-validation findings** confirmed by ESBMC counterexamples
+**Seven live API-validation findings** confirmed by ESBMC counterexamples
 and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
 **Two have maintainer fix PRs open upstream**: a maintainer opened
 [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)
@@ -37,6 +37,7 @@ and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
 | D | `api/reviews_api.py:78` | `{"state": 0}` / `false` | Falsy value skips `Vote.is_valid_state` (`get_param`/`get_int_param` `val and …` short-circuit) → `set_vote` bare `ValueError` → **HTTP 500** instead of HTTP 400 | [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447) | [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452) (open) |
 | E | `api/shipping_features_api.py:58` | `?mstone=0` | `get_int_arg` admits 0; handler guards only `is None` → **empty feature lists** (HTTP 200, no error signal) | _filed: pending_ | — |
 | F | `api/metricsdata.py:199` | `?num=0` | `get_int_arg` admits 0; `if num:` truthiness guard skips the `[:num]` slice → **all datapoints returned** (HTTP 200; the inverse of B) | _not filed (B-class)_ | — |
+| G | `api/features_api.py:552` | PATCH body without `feature_changes` (e.g. `{}`) | Unguarded `body['feature_changes']` → **`KeyError` → HTTP 500** instead of 400 (same bare-exception class as A / [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)) | _filed: pending_ | — |
 
 **Worked example — Finding B (`?num=0` silent-acceptance, [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442)).**
 `GET /api/v0/features?num=0` is a reasonable user mistake (or a fuzzer
@@ -130,6 +131,26 @@ caller asking for "top 0" gets the whole dataset. It combines the
 Proposed fix: replace `if num:` with `if num is not None:` so a provided limit
 (including `0`) is always honored. Same benign class as Finding B (#6442, closed
 won't-fix), so not filed upstream as a standalone bug.
+
+**Finding G — malformed PATCH body → `KeyError` → HTTP 500 (not 400).**
+`api/features_api.py:549-552` (`FeaturesAPI.do_patch`) reads
+`body = self.get_json_param_dict()` (which returns `{}` for a missing/invalid
+body) and then immediately indexes `body['feature_changes']` with no presence
+guard: `if 'id' not in body['feature_changes']:`. A `PATCH /api/v0/features/<id>`
+whose body lacks the `feature_changes` key — including an empty `{}` — raises
+`KeyError`. `APIHandler.patch` (`framework/basehandlers.py:285`) has no `except`
+around `do_patch`, so the exception propagates to Flask as **HTTP 500** rather
+than the HTTP 400 the maintainer's `api/` convention requires. This is the same
+bare-exception class as Finding A — the one the maintainer fixed in
+[PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) — found
+by sweeping `api/` for user input that reaches an uncaught exception. (The
+sibling `body['stages']` access at line 567 is the same class.) The
+`harness/features_patch_missing_feature_changes_http500.py` counterexample pins
+the missing-key path (`assertion code == 400` violated via `KeyError`); the
+paired `harness/features_patch_body_shape_validated.py` verifies the fix
+(SUCCESSFUL). Proposed fix: `if 'feature_changes' not in body: self.abort(400,
+msg='Missing feature_changes')` before the access. Reachable by any signed-in
+user (the endpoint requires sign-in + XSRF).
 
 **Positive control — `releasenotes_api.py` does the milestone-range check right.**
 `api/releasenotes_api.py:37-51` (`ReleaseNotesL10nAPI.do_get`) reads the same

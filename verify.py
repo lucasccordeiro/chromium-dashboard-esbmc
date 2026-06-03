@@ -206,6 +206,30 @@ TARGETS: list[Target] = [
         expected="SUCCESSFUL",
         safety_expected="SUCCESSFUL",
     ),
+    Target(
+        # Finding G: api/features_api.py:552 FeaturesAPI.do_patch
+        # body = get_json_param_dict() (={} for missing/invalid JSON), then
+        # `if 'id' not in body['feature_changes']` indexes the key with no
+        # presence guard. A PATCH body lacking 'feature_changes' (e.g. {})
+        # raises KeyError; APIHandler.patch has no except around do_patch, so it
+        # surfaces as HTTP 500 instead of 400 (same class as Finding A / PR #6451).
+        # Contract: a malformed body should yield 400; assertion fails on the
+        # KeyError path.
+        name="features_patch_missing_feature_changes_http500",
+        entry="features_patch_missing_feature_changes_http500.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+    Target(
+        # Paired good harness / positive control for Finding G: the proposed fix
+        # guards `if 'feature_changes' not in body: self.abort(400, ...)` before
+        # indexing, so every body shape yields a clean HTTP code (400 for a
+        # malformed body) and never an uncaught KeyError. Holds.
+        name="features_patch_body_shape_validated",
+        entry="features_patch_body_shape_validated.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
 
     # --- Tier 3: self-certify logic contracts ---
 
