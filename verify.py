@@ -230,6 +230,68 @@ TARGETS: list[Target] = [
         expected="SUCCESSFUL",
         safety_expected="SUCCESSFUL",
     ),
+    Target(
+        # Finding H: api/stages_api.py:101 StagesAPI.do_post
+        # int(body['stage_type']['value']) is reached after a presence-only guard
+        # ('stage_type' not in body); a malformed stage_type (non-dict, missing
+        # 'value', or non-numeric value) raises TypeError/KeyError/ValueError.
+        # APIHandler.post has no except around do_post -> HTTP 500, not 400.
+        # Contract: a malformed stage_type should abort 400; assertion fails on
+        # the exception path.
+        name="stages_post_malformed_stage_type_http500",
+        entry="stages_post_malformed_stage_type_http500.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+    Target(
+        # Positive control for Finding H: validating shape/type before int()
+        # yields a clean 400 for any malformed stage_type, never an exception.
+        name="stages_post_stage_type_validated",
+        entry="stages_post_stage_type_validated.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
+    Target(
+        # Finding I: api/comments_api.py:175 CommentsAPI.do_patch
+        # Activity.get_by_id(comment_id) returns None for a missing/unknown
+        # commentId; the 403 permission guard short-circuits when comment is
+        # None, so `comment.deleted_by = ...` dereferences None -> AttributeError.
+        # APIHandler.patch has no except around do_patch -> HTTP 500, not 404.
+        # Contract: a missing comment should abort 404; assertion fails on the
+        # exception path.
+        name="comments_patch_missing_comment_http500",
+        entry="comments_patch_missing_comment_http500.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+    Target(
+        # Positive control for Finding I: an explicit `if comment is None:
+        # self.abort(404, ...)` guard yields a clean 404, never an AttributeError.
+        name="comments_patch_comment_existence_validated",
+        entry="comments_patch_comment_existence_validated.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
+    Target(
+        # Finding J: api/intents_api.py:176 IntentsAPI.do_post
+        # PostIntentRequest(**self.request.get_json()) splats raw JSON into a
+        # generated model __init__ that accepts only gate_id/intent_cc_emails, so
+        # any extra key raises TypeError (unexpected kwarg). APIHandler.post has
+        # no except around do_post -> HTTP 500, not 400. Contract: an unexpected
+        # body key should abort 400; assertion fails on the exception path.
+        name="intents_post_unknown_key_http500",
+        entry="intents_post_unknown_key_http500.py",
+        expected="FAILED",
+        safety_expected=None,
+    ),
+    Target(
+        # Positive control for Finding J: tolerant from_dict + error conversion
+        # handles any body shape as a clean 400/200, never an uncaught TypeError.
+        name="intents_post_body_validated",
+        entry="intents_post_body_validated.py",
+        expected="SUCCESSFUL",
+        safety_expected="SUCCESSFUL",
+    ),
 
     # --- Tier 3: self-certify logic contracts ---
 

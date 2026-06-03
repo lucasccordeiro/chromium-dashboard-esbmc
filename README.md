@@ -11,7 +11,7 @@ Modelled on the
 
 ## Status
 
-**38 verification targets** across five tiers — pure date/integer arithmetic
+**44 verification targets** across five tiers — pure date/integer arithmetic
 helpers (`is_weekday`, `weekdays_between`, `remaining_days`, `diff_days`,
 `diff_weeks`), HTTP API input-validation paths, self-certify boolean
 contracts (`is_privacy_eligible`, `is_testing_eligible`,
@@ -22,7 +22,7 @@ idempotency, overdue-detection arithmetic), and milestone arithmetic
 `make verify` (two phases per target) completes in under 30 seconds
 with 0 failures.
 
-**Seven live API-validation findings** confirmed by ESBMC counterexamples
+**Ten live API-validation findings** confirmed by ESBMC counterexamples
 and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
 **Two have maintainer fix PRs open upstream**: a maintainer opened
 [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)
@@ -38,6 +38,9 @@ and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
 | E | `api/shipping_features_api.py:58` | `?mstone=0` | `get_int_arg` admits 0; handler guards only `is None` → **empty feature lists** (HTTP 200, no error signal) | _filed: pending_ | — |
 | F | `api/metricsdata.py:199` | `?num=0` | `get_int_arg` admits 0; `if num:` truthiness guard skips the `[:num]` slice → **all datapoints returned** (HTTP 200; the inverse of B) | _not filed (B-class)_ | — |
 | G | `api/features_api.py:552` | PATCH body without `feature_changes` (e.g. `{}`) | Unguarded `body['feature_changes']` → **`KeyError` → HTTP 500** instead of 400 (same bare-exception class as A / [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)) | [#6464](https://github.com/GoogleChrome/chromium-dashboard/issues/6464) | — |
+| H | `api/stages_api.py:101` | POST `stage_type` not a `{value:int}` dict (e.g. `{}`) | `int(body['stage_type']['value'])` → **`TypeError`/`KeyError`/`ValueError` → HTTP 500** instead of 400 | _drafted, unfiled_ | — |
+| I | `api/comments_api.py:175` | PATCH unknown `commentId` | `get_by_id`→`None`, guard short-circuits, `None.deleted_by` → **`AttributeError` → HTTP 500** instead of 404 | _drafted, unfiled_ | — |
+| J | `api/intents_api.py:176` | POST body with any extra key | `PostIntentRequest(**body)` → **`TypeError` (unexpected kwarg) → HTTP 500** instead of 400 | _drafted, unfiled_ | — |
 
 **Worked example — Finding B (`?num=0` silent-acceptance, [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442)).**
 `GET /api/v0/features?num=0` is a reasonable user mistake (or a fuzzer
@@ -151,6 +154,27 @@ paired `harness/features_patch_body_shape_validated.py` verifies the fix
 (SUCCESSFUL). Proposed fix: `if 'feature_changes' not in body: self.abort(400,
 msg='Missing feature_changes')` before the access. Reachable by any signed-in
 user (the endpoint requires sign-in + XSRF).
+
+**Findings H, I, J — three more bare-exception → HTTP 500 sites (same sweep).**
+The same `api/` sweep that produced Finding G surfaced three further handlers
+where user input reaches an uncaught exception (HTTP 500 instead of a clean 4xx):
+- **H — `api/stages_api.py:101` (`StagesAPI.do_post`).** `stage_type` is guarded
+  only for key presence, then `int(body['stage_type']['value'])` runs; a
+  malformed `stage_type` (`{"stage_type": 5}`, `{}`, `{"value": "abc"}`) raises
+  `TypeError`/`KeyError`/`ValueError`. Fix: validate the shape/type before `int()`.
+- **I — `api/comments_api.py:175` (`CommentsAPI.do_patch`).** `Activity.get_by_id`
+  returns `None` for an unknown `commentId`; the 403 permission guard
+  short-circuits, then `comment.deleted_by = …` dereferences `None` →
+  `AttributeError` (should be HTTP 404). Fix: `if comment is None: self.abort(404, …)`.
+- **J — `api/intents_api.py:176` (`IntentsAPI.do_post`).** `PostIntentRequest(**self.request.get_json())`
+  splats raw JSON into a model whose `__init__` accepts only `gate_id`/`intent_cc_emails`,
+  so any extra key raises `TypeError`. Fix: `PostIntentRequest.from_dict(... or {})`
+  inside `try/except → self.abort(400, …)`.
+
+Each has an ESBMC witness (`*_http500.py`, FAILED) and a paired positive control
+(`*_validated.py`, SUCCESSFUL) modelling the fix, plus a CPython reproducer and an
+upstream-issue draft under [`bug-reports/`](./bug-reports/). All three are the
+maintainer-accepted bare-exception class (cf. PR #6451 / [#6464](https://github.com/GoogleChrome/chromium-dashboard/issues/6464)).
 
 **Positive control — `releasenotes_api.py` does the milestone-range check right.**
 `api/releasenotes_api.py:37-51` (`ReleaseNotesL10nAPI.do_get`) reads the same
