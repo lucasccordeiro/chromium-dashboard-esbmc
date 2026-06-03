@@ -106,6 +106,15 @@ Violated property:
 **Proposed fix**: replace `raise ValueError` with
 `self.abort(400, msg='start must be <= end')`.
 
+**Upstream fix**: a maintainer opened
+[PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)
+("Give 400 for bad channel range.", open as of 2026-06-03) resolving Finding A, which replaces
+`raise ValueError` with `self.abort(400, 'start is greater than end')` — the
+fix we proposed — and adds a regression test asserting HTTP 400. The PR body
+states the project convention directly: `api/` code should `self.abort(400, …)`
+on bad user input rather than rely on a generic `except` in `basehandlers.py`,
+"because such an `except` might mask coding errors."
+
 **Severity**: UX defect — same class as vLLM Finding #4 (bare AssertionError
 in BlockPool instead of a clean ValueError).
 
@@ -219,6 +228,18 @@ gap is specific to falsy values.
 and `if val is not None and type(val) != int:` in `get_int_param`
 (the `allowed` guard on line 126 has the same flaw).  Defense-in-depth:
 `set_vote` should `self.abort(400, ...)` rather than raise a bare `ValueError`.
+
+**Upstream fix**: a maintainer opened
+[PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)
+("Fix validation of 0 int parameters.", open as of 2026-06-03) resolving Finding D, which changes
+both `get_param` guards from `if val and …` to `if val is not None and …` (the
+`validator` and `allowed` checks) — the exact fix we proposed. The PR body
+states the principle: "We should validate whenever an expected int parameter is
+found, even if it is 0." This rejects the falsy `state` at the API boundary, so
+`set_vote`'s bare `ValueError` is no longer reached on this path. Two notes: the
+patch leaves `get_int_param`'s own `if val and type(val) != int:` short-circuit
+unchanged (latent, but moot for this finding once `get_param` rejects the value)
+and does not apply the defense-in-depth `abort(400)` in `set_vote`.
 
 **Severity**: validation-bypass → HTTP 500 defect — same bare-raise → 500 class
 as Finding A.
