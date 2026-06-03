@@ -28,6 +28,8 @@ Verifier: ESBMC 8.3.0+.
 | `votes_state_zero_validator_bypass` | `votes_state_zero_validator_bypass.py` | **FAILED** | 1 | skipped | — | **Finding D — live bug** |
 | `shipping_features_mstone_zero_silent_acceptance` | `shipping_features_mstone_zero_silent_acceptance.py` | **FAILED** | 1 | skipped | — | **Finding E — live bug** |
 | `releasenotes_milestone_range_validated` | `releasenotes_milestone_range_validated.py` | SUCCESSFUL | 3 | SUCCESSFUL | 6 | positive control: correct milestone-range check |
+| `metricsdata_num_zero_returns_all` | `metricsdata_num_zero_returns_all.py` | **FAILED** | 1 | skipped | — | **Finding F — live bug** |
+| `metricsdata_num_limit_honored` | `metricsdata_num_limit_honored.py` | SUCCESSFUL | 2 | SUCCESSFUL | 2 | positive control: `if num is not None` honors the limit |
 | `is_privacy_eligible` | `is_privacy_eligible.py` | SUCCESSFUL | 4 | SUCCESSFUL | 4 | |
 | `is_privacy_eligible_buggy` | `is_privacy_eligible_buggy.py` | FAILED | 1 | skipped | — | explanation check dropped |
 | `is_testing_eligible` | `is_testing_eligible.py` | SUCCESSFUL | 7 | SUCCESSFUL | 7 | |
@@ -47,8 +49,8 @@ Verifier: ESBMC 8.3.0+.
 | `milestone_skip_round_trip` | `milestone_skip_round_trip.py` | SUCCESSFUL | 2 | SUCCESSFUL | 6 | |
 | `milestone_skip_round_trip_buggy` | `milestone_skip_round_trip_buggy.py` | FAILED | 1 | skipped | — | `next` jumps to 84 instead of 83 |
 
-**Total targets: 34 (15 SUCCESSFUL + 19 FAILED, of which 5 FAILED are the live-bug
-findings A/B/C/D/E). Every target matches its expected verdict; 0 deviations.**
+**Total targets: 36 (16 SUCCESSFUL + 20 FAILED, of which 6 FAILED are the live-bug
+findings A/B/C/D/E/F). Every target matches its expected verdict; 0 deviations.**
 
 ---
 
@@ -289,6 +291,53 @@ parameter — which would fix Findings B, C, and E at a single site.
 
 **Severity**: silent-acceptance defect — same `get_int_arg`-admits-`0` class as
 Findings B and C, in a fifth endpoint.
+
+---
+
+### Finding F — `metricsdata.py:199` `FeatureHandler.get_template_data` — `?num=0` returns all datapoints (HTTP 200; inverse of B)
+
+**Source**: `api/metricsdata.py:199-212`, `framework/basehandlers.py:182`
+
+```python
+num = self.get_int_arg('num')           # admits 0 (rejects only < 0)
+if num and not self.should_refresh():   # num=0 is falsy → cache path skipped
+    ...
+properties = self.fetch_all_datapoints()
+if num:                                 # num=0 is falsy → slice skipped
+    properties = properties[:num]
+return _datapoints_to_json_dicts(properties)   # → returns ALL, HTTP 200
+```
+
+`get_int_arg('num')` rejects `< 0` but admits `0`.  The result is then bounded
+with `if num:` — a truthiness guard, not a presence guard — so for `num = 0` the
+`properties[:num]` slice is skipped and the handler returns the **full** datapoint
+set with **HTTP 200**.  This is the mirror image of Finding B (`features` `?num=0`
+→ *empty* page): here `?num=0` returns *everything*, so a caller requesting "top 0"
+receives the entire dataset.  It combines the `get_int_arg`-admits-`0` class
+(B/C/E) with the falsy-guard short-circuit class (`if num:`, the same shape as
+Finding D's `if val and …`).
+
+**ESBMC counterexample** (`metricsdata_num_zero_returns_all.py`,
+Phase 1 FAILED, 1 VCC):
+
+```
+Violated property:
+  file metricsdata_num_zero_returns_all.py
+  assertion result_len <= num
+
+  num = 0, n_total > 0  (slice skipped; all n_total datapoints returned, HTTP 200)
+```
+
+The paired good harness `metricsdata_num_limit_honored.py` models the fix
+(`if num is not None:`) and verifies `len(result) <= num` for every admitted
+`num >= 0` — SUCCESSFUL in both phases (positive control). Confirmed empirically
+under CPython (`reproducer/finding_f_metricsdata_num_zero.py`).
+
+**Proposed fix**: replace `if num:` with `if num is not None:` so a provided
+limit (including `0`) always bounds the result.
+
+**Severity**: silent-acceptance defect — same benign class as Finding B (#6442,
+closed won't-fix), so **not filed upstream** as a standalone bug.
 
 ---
 
