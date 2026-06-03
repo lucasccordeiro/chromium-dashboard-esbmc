@@ -37,7 +37,7 @@ and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
 | D | `api/reviews_api.py:78` | `{"state": 0}` / `false` | Falsy value skips `Vote.is_valid_state` (`get_param`/`get_int_param` `val and …` short-circuit) → `set_vote` bare `ValueError` → **HTTP 500** instead of HTTP 400 | [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447) | [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452) (open) |
 | E | `api/shipping_features_api.py:58` | `?mstone=0` | `get_int_arg` admits 0; handler guards only `is None` → **empty feature lists** (HTTP 200, no error signal) | _filed: pending_ | — |
 | F | `api/metricsdata.py:199` | `?num=0` | `get_int_arg` admits 0; `if num:` truthiness guard skips the `[:num]` slice → **all datapoints returned** (HTTP 200; the inverse of B) | _not filed (B-class)_ | — |
-| G | `api/features_api.py:552` | PATCH body without `feature_changes` (e.g. `{}`) | Unguarded `body['feature_changes']` → **`KeyError` → HTTP 500** instead of 400 (same bare-exception class as A / [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)) | _filed: pending_ | — |
+| G | `api/features_api.py:552` | PATCH body without `feature_changes` (e.g. `{}`) | Unguarded `body['feature_changes']` → **`KeyError` → HTTP 500** instead of 400 (same bare-exception class as A / [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)) | [#6464](https://github.com/GoogleChrome/chromium-dashboard/issues/6464) | — |
 
 **Worked example — Finding B (`?num=0` silent-acceptance, [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442)).**
 `GET /api/v0/features?num=0` is a reasonable user mistake (or a fuzzer

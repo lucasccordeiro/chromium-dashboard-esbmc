@@ -313,7 +313,8 @@ presence guard and is SUCCESSFUL.
 the access; default `body.get('stages', [])` for the sibling.
 
 **Severity**: bare-exception → HTTP 500 — same class as Finding A (PR #6451,
-accepted/fixed by the maintainer); a strong candidate to file upstream.
+accepted/fixed by the maintainer). Filed upstream as
+[#6464](https://github.com/GoogleChrome/chromium-dashboard/issues/6464).
 
 ---
 
