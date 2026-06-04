@@ -129,9 +129,9 @@ Violated property:
 **Proposed fix**: replace `raise ValueError` with
 `self.abort(400, msg='start must be <= end')`.
 
-**Upstream fix**: a maintainer opened
+**Upstream fix**: fixed upstream in
 [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)
-("Give 400 for bad channel range.", open as of 2026-06-03) resolving Finding A, which replaces
+("Give 400 for bad channel range.", merged 2026-06-03) resolving Finding A, which replaces
 `raise ValueError` with `self.abort(400, 'start is greater than end')` — the
 fix we proposed — and adds a regression test asserting HTTP 400. The PR body
 states the project convention directly: `api/` code should `self.abort(400, …)`
@@ -252,9 +252,9 @@ and `if val is not None and type(val) != int:` in `get_int_param`
 (the `allowed` guard on line 126 has the same flaw).  Defense-in-depth:
 `set_vote` should `self.abort(400, ...)` rather than raise a bare `ValueError`.
 
-**Upstream fix**: a maintainer opened
+**Upstream fix**: fixed upstream in
 [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)
-("Fix validation of 0 int parameters.", open as of 2026-06-03) resolving Finding D, which changes
+("Fix validation of 0 int parameters.", merged 2026-06-03) resolving Finding D, which changes
 both `get_param` guards from `if val and …` to `if val is not None and …` (the
 `validator` and `allowed` checks) — the exact fix we proposed. The PR body
 states the principle: "We should validate whenever an expected int parameter is

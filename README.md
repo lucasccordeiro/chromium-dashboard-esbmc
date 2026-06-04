@@ -37,17 +37,17 @@ logic is sound.
 
 **Ten live API-validation findings** confirmed by ESBMC counterexamples
 and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
-**Two have maintainer fix PRs open upstream**: a maintainer opened
+**Two are now fixed upstream**: the maintainer merged
 [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)
 (resolving Finding A) and [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)
 (resolving Finding D), each implementing the fix we proposed.
 
 | Finding | Source | Admitted value | Downstream effect | Issue | Upstream fix |
 |---|---|---|---|---|---|
-| A | `api/channels_api.py:146` | `?start > ?end` | Bare `raise ValueError` → Flask returns **HTTP 500** instead of HTTP 400 | [#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441) | [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) (open) |
+| A | `api/channels_api.py:146` | `?start > ?end` | Bare `raise ValueError` → Flask returns **HTTP 500** instead of HTTP 400 | [#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441) | [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) (merged) |
 | B | `api/features_api.py:117` | `?num=0` | `get_int_arg` admits 0 → **silent empty page** (HTTP 200, no error signal) | [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442) | closed — won't fix (benign) |
 | C | `api/channels_api.py:138` | `?start=0` / `?end=0` | Milestone 0 accepted → **null dates** returned (HTTP 200, no error signal) | [#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443) | — |
-| D | `api/reviews_api.py:78` | `{"state": 0}` / `false` | Falsy value skips `Vote.is_valid_state` (`get_param`/`get_int_param` `val and …` short-circuit) → `set_vote` bare `ValueError` → **HTTP 500** instead of HTTP 400 | [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447) | [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452) (open) |
+| D | `api/reviews_api.py:78` | `{"state": 0}` / `false` | Falsy value skips `Vote.is_valid_state` (`get_param`/`get_int_param` `val and …` short-circuit) → `set_vote` bare `ValueError` → **HTTP 500** instead of HTTP 400 | [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447) | [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452) (merged) |
 | E | `api/shipping_features_api.py:58` | `?mstone=0` | `get_int_arg` admits 0; handler guards only `is None` → **empty feature lists** (HTTP 200, no error signal) | _filed: pending_ | — |
 | F | `api/metricsdata.py:199` | `?num=0` | `get_int_arg` admits 0; `if num:` truthiness guard skips the `[:num]` slice → **all datapoints returned** (HTTP 200; the inverse of B) | _not filed (B-class)_ | — |
 | G | `api/features_api.py:552` | PATCH body without `feature_changes` (e.g. `{}`) | Unguarded `body['feature_changes']` → **`KeyError` → HTTP 500** instead of 400 (same bare-exception class as A / [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)) | [#6464](https://github.com/GoogleChrome/chromium-dashboard/issues/6464) | — |
@@ -81,8 +81,8 @@ Proposed fix: replace `raise ValueError` with
 `self.abort(400, msg='start must be <= end')`.
 Same class as vLLM Finding #4 (bare `AssertionError` in `BlockPool.__init__`
 instead of a clean `ValueError`).
-**Maintainer fix PR open upstream** ([PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451),
-open as of 2026-06-03): the maintainer replaced `raise ValueError` with
+**Fixed upstream** ([PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451),
+merged 2026-06-03): the maintainer replaced `raise ValueError` with
 `self.abort(400, 'start is greater than end')` — the fix we proposed — and added
 a regression test asserting HTTP 400.
 
@@ -109,8 +109,8 @@ pins the helper bypass (`assertion is_valid_state(state)` violated at
 → 500 mechanism as Finding A ([#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441)).
 Proposed fix: test `val is not None` instead of `val` in the `get_param`/
 `get_int_param` guards; `set_vote` should `self.abort(400, …)` not bare-raise.
-**Maintainer fix PR open upstream** ([PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452),
-open as of 2026-06-03): the maintainer changed both `get_param` guards from
+**Fixed upstream** ([PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452),
+merged 2026-06-03): the maintainer changed both `get_param` guards from
 `if val and …` to `if val is not None and …` — the exact fix we proposed —
 with the rationale "we should validate whenever an expected int parameter is
 found, even if it is 0." This rejects the falsy `state` at the API boundary, so
