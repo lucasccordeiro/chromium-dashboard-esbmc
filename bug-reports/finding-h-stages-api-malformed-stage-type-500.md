@@ -76,6 +76,15 @@ A malformed `stage_type` should be rejected with **HTTP 400 Bad Request**.
   except (TypeError, ValueError):
       self.abort(400, msg='stage_type value was not an int.')
   ```
+- Prior report — this is a **backend-hardening follow-up**, not a new symptom:
+  issue #4302 reported this same 500 (the edit-all "Add Step" dialog submitting
+  `{"stage_type": 1061}` instead of `{"stage_type": {"value": ...}}`). It was
+  fixed **client-side only** in PR #5049 (which touched just
+  `client-src/elements/chromedash-guide-editall-page.ts`); `api/stages_api.py`
+  was not changed, so the server still returns 500 for a malformed `stage_type`
+  from any other client or a direct API call. This issue asks for the
+  **server-side** `abort(400)`, consistent with the `api/` convention applied in
+  PR #6451.
 - Same class as the `ChannelsAPI` `?start > ?end` → HTTP 500 issue fixed in
   PR #6451 and the `FeaturesAPI` PATCH issue ([#6464](https://github.com/GoogleChrome/chromium-dashboard/issues/6464)).
   Found by sweeping `api/` handlers for user input that reaches an uncaught
