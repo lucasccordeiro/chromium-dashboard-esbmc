@@ -2,7 +2,7 @@
 
 Ready-to-file GitHub issue for `GoogleChrome/chromium-dashboard`, formatted to the
 repository's `bug_report.md` template. Verified against upstream `main` at commit
-`3d6ec4bb` (2026-06-04). **Not yet filed.**
+`3d6ec4bb` (2026-06-04). **Filed as [#6468](https://github.com/GoogleChrome/chromium-dashboard/issues/6468).**
 
 - **Title:** `CommentsAPI` PATCH returns HTTP 500 (AttributeError) for an unknown `commentId`
 - **Labels:** `bug`
