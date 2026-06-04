@@ -2,7 +2,7 @@
 
 Ready-to-file GitHub issue for `GoogleChrome/chromium-dashboard`, formatted to the
 repository's `bug_report.md` template. Verified against upstream `main` at commit
-`3d6ec4bb` (2026-06-04). **Not yet filed.**
+`3d6ec4bb` (2026-06-04). **Filed as [#6469](https://github.com/GoogleChrome/chromium-dashboard/issues/6469).**
 
 - **Title:** `IntentsAPI` POST returns HTTP 500 (TypeError) for any unexpected key in the JSON body
 - **Labels:** `bug`
