@@ -36,10 +36,12 @@ around `do_post`, so the `TypeError` propagates to Flask as HTTP 500.
 **To Reproduce**
 
 Steps to reproduce the behavior:
-1. As a signed-in user (the endpoint requires sign-in + XSRF) with edit access,
-   send a body with an unexpected key:
+1. As a signed-in user (the endpoint requires sign-in + XSRF) with edit access to
+   the feature, POST to a stage that supports intent drafting (an Intent-Draft
+   stage type — otherwise the request `400`s before reaching the crash; see
+   Additional context), with a body containing an unexpected key:
    ```
-   POST /api/v0/features/1/2/intent
+   POST /api/v0/features/<feature_id>/<stage_id>/intent
    Content-Type: application/json
 
    {"gate_id": 3, "bogus": 1}
@@ -56,6 +58,12 @@ Request**, not produce an HTTP 500.
 
 - Affected code (commit `3d6ec4bb`): `api/intents_api.py:176`;
   `framework/basehandlers.py:261` (`APIHandler.post` has no `except`).
+- Reachability: line 176 is reached only after `do_post` validates the feature
+  (line 148), the stage and that it belongs to the feature (154-156), that the
+  stage type supports intent drafting (163-167, else `abort(400)`), and the
+  user's edit permission (170-172). So the trigger requires an intent-supporting
+  stage and edit access — but once there, the extra-key `TypeError` fires for any
+  malformed body.
 - Suggested fix — use the tolerant deserializer and convert residual errors:
   ```python
   try:
