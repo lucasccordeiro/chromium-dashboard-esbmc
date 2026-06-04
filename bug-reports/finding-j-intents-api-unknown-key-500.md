@@ -29,8 +29,9 @@ def __init__(self, gate_id=None, intent_cc_emails=None):
     ...
 ```
 
-So any extra key raises `TypeError: __init__() got an unexpected keyword argument
-'<key>'`. `APIHandler.post` (`framework/basehandlers.py:261`) has no `except`
+So any extra key raises `TypeError: PostIntentRequest.__init__() got an unexpected
+keyword argument '<key>'` (the runtime is Python 3.13, which qualifies the name).
+`APIHandler.post` (`framework/basehandlers.py:261`) has no `except`
 around `do_post`, so the `TypeError` propagates to Flask as HTTP 500.
 
 **To Reproduce**
@@ -46,8 +47,9 @@ Steps to reproduce the behavior:
 
    {"gate_id": 3, "bogus": 1}
    ```
-2. Observe **HTTP 500 Internal Server Error** (a `TypeError: __init__() got an
-   unexpected keyword argument 'bogus'` traceback) instead of HTTP 400.
+2. Observe **HTTP 500 Internal Server Error** (a `TypeError:
+   PostIntentRequest.__init__() got an unexpected keyword argument 'bogus'`
+   traceback) instead of HTTP 400.
 
 **Expected behavior**
 
