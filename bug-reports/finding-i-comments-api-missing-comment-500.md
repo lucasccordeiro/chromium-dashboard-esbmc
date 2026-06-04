@@ -4,7 +4,7 @@ Ready-to-file GitHub issue for `GoogleChrome/chromium-dashboard`, formatted to t
 repository's `bug_report.md` template. Verified against upstream `main` at commit
 `3d6ec4bb` (2026-06-04). **Not yet filed.**
 
-- **Title:** `CommentsAPI` PATCH returns HTTP 500 (AttributeError) for a missing/unknown `commentId`
+- **Title:** `CommentsAPI` PATCH returns HTTP 500 (AttributeError) for an unknown `commentId`
 - **Labels:** `bug`
 
 ---
@@ -31,8 +31,9 @@ else:
     comment.deleted_by = user.email()
 ```
 
-`Activity.get_by_id(comment_id)` returns `None` for a missing/unknown/`None`
-`commentId`. The permission check does not stop this:
+`Activity.get_by_id(comment_id)` returns `None` when `commentId` is a valid id
+with no matching comment (e.g. an already-deleted or never-existent comment). The
+permission check does not stop this:
 - for a site admin, `not permissions.can_admin_site(user)` is `False`, so the
   `and` short-circuits and no abort fires;
 - for a non-admin, `(comment and …)` is falsy when `comment` is `None`, so the
@@ -58,7 +59,7 @@ Steps to reproduce the behavior:
 
 **Expected behavior**
 
-A missing/unknown `commentId` should be rejected with **HTTP 404 Not Found**
+An unknown `commentId` should be rejected with **HTTP 404 Not Found**
 (or HTTP 400), not produce an HTTP 500.
 
 **Additional context**
