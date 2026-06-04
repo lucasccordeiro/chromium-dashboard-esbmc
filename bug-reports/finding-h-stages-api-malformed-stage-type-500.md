@@ -38,8 +38,10 @@ on bad input.
 **To Reproduce**
 
 Steps to reproduce the behavior:
-1. As a signed-in user (the endpoint requires sign-in + XSRF) with edit access to
-   the feature, send:
+1. As a signed-in user (the endpoint requires sign-in + XSRF), send the following
+   to an existing feature (`123` below). No edit permission is required — the
+   crash at line 101 happens before the edit-permission check (see Additional
+   context):
    ```
    POST /api/v0/features/123/stages
    Content-Type: application/json
@@ -59,6 +61,11 @@ A malformed `stage_type` should be rejected with **HTTP 400 Bad Request**.
 - Affected code (commit `3d6ec4bb`): `api/stages_api.py:101`;
   `framework/basehandlers.py:261` (`APIHandler.post` has no `except` around
   `do_post`).
+- Reachability: in `do_post` the crash (line 101) precedes the edit-permission
+  check `_validate_edit_permissions` (line 103); the only earlier gate,
+  `get_validated_entity` (line 95), just verifies the feature exists (404
+  otherwise). So any signed-in user can trigger the 500 on any existing feature,
+  not only one they can edit.
 - Suggested fix:
   ```python
   st = body['stage_type']
