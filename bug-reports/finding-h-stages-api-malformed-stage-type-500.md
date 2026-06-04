@@ -2,7 +2,7 @@
 
 Ready-to-file GitHub issue for `GoogleChrome/chromium-dashboard`, formatted to the
 repository's `bug_report.md` template. Verified against upstream `main` at commit
-`4294104b` (2026-06-03). **Not yet filed.**
+`3d6ec4bb` (2026-06-04). **Not yet filed.**
 
 - **Title:** `StagesAPI` POST returns HTTP 500 for a malformed `stage_type` (TypeError/KeyError/ValueError)
 - **Labels:** `bug`
@@ -56,7 +56,7 @@ A malformed `stage_type` should be rejected with **HTTP 400 Bad Request**.
 
 **Additional context**
 
-- Affected code (commit `4294104b`): `api/stages_api.py:101`;
+- Affected code (commit `3d6ec4bb`): `api/stages_api.py:101`;
   `framework/basehandlers.py:261` (`APIHandler.post` has no `except` around
   `do_post`).
 - Suggested fix:

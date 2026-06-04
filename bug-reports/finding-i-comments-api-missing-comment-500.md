@@ -2,7 +2,7 @@
 
 Ready-to-file GitHub issue for `GoogleChrome/chromium-dashboard`, formatted to the
 repository's `bug_report.md` template. Verified against upstream `main` at commit
-`4294104b` (2026-06-03). **Not yet filed.**
+`3d6ec4bb` (2026-06-04). **Not yet filed.**
 
 - **Title:** `CommentsAPI` PATCH returns HTTP 500 (AttributeError) for a missing/unknown `commentId`
 - **Labels:** `bug`
@@ -63,7 +63,7 @@ A missing/unknown `commentId` should be rejected with **HTTP 404 Not Found**
 
 **Additional context**
 
-- Affected code (commit `4294104b`): `api/comments_api.py:166` (`get_by_id`
+- Affected code (commit `3d6ec4bb`): `api/comments_api.py:166` (`get_by_id`
   returns `None`), `:175`/`:177` (the `None` dereference);
   `framework/basehandlers.py:285` (`APIHandler.patch` has no `except`).
 - Suggested fix:
