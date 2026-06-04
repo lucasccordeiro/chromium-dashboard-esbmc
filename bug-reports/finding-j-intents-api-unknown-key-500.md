@@ -2,7 +2,7 @@
 
 Ready-to-file GitHub issue for `GoogleChrome/chromium-dashboard`, formatted to the
 repository's `bug_report.md` template. Verified against upstream `main` at commit
-`4294104b` (2026-06-03). **Not yet filed.**
+`3d6ec4bb` (2026-06-04). **Not yet filed.**
 
 - **Title:** `IntentsAPI` POST returns HTTP 500 (TypeError) for any unexpected key in the JSON body
 - **Labels:** `bug`
@@ -54,7 +54,7 @@ Request**, not produce an HTTP 500.
 
 **Additional context**
 
-- Affected code (commit `4294104b`): `api/intents_api.py:176`;
+- Affected code (commit `3d6ec4bb`): `api/intents_api.py:176`;
   `framework/basehandlers.py:261` (`APIHandler.post` has no `except`).
 - Suggested fix — use the tolerant deserializer and convert residual errors:
   ```python
