@@ -193,6 +193,13 @@ Violated property:
 **Proposed fix**: add `if start < 1 or end < 1: self.abort(400, msg='milestone must be >= 1')`
 after the args are parsed.
 
+**Upstream fix**: fixed upstream in
+[PR #6656](https://github.com/GoogleChrome/chromium-dashboard/pull/6656)
+("fix(channels): reject milestone zero in ChannelsAPI", merged 2026-07-30)
+resolving Finding C, which makes `do_get` abort with HTTP 400 when either
+bound is below 1 — the fix we proposed — and adds regression test
+`test_do_get__zero_milestone` covering `start=0`, `end=0`, and both.
+
 **Severity**: silent-acceptance defect — same class as vLLM Finding #3
 (`--max-model-len 0` propagating to the scheduler).
 
