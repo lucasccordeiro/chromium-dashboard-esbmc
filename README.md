@@ -37,16 +37,17 @@ logic is sound.
 
 **Ten live API-validation findings** confirmed by ESBMC counterexamples
 and empirical reproduction (full traces in [`REPORT.md`](./REPORT.md)).
-**Two are now fixed upstream**: the maintainer merged
+**Three are now fixed upstream**: the maintainer merged
 [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451)
-(resolving Finding A) and [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)
-(resolving Finding D), each implementing the fix we proposed.
+(resolving Finding A), [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452)
+(resolving Finding D), and [PR #6656](https://github.com/GoogleChrome/chromium-dashboard/pull/6656)
+(resolving Finding C), each implementing the fix we proposed.
 
 | Finding | Source | Admitted value | Downstream effect | Issue | Upstream fix |
 |---|---|---|---|---|---|
 | A | `api/channels_api.py:146` | `?start > ?end` | Bare `raise ValueError` → Flask returns **HTTP 500** instead of HTTP 400 | [#6441](https://github.com/GoogleChrome/chromium-dashboard/issues/6441) | [PR #6451](https://github.com/GoogleChrome/chromium-dashboard/pull/6451) (merged) |
 | B | `api/features_api.py:117` | `?num=0` | `get_int_arg` admits 0 → **silent empty page** (HTTP 200, no error signal) | [#6442](https://github.com/GoogleChrome/chromium-dashboard/issues/6442) | closed — won't fix (benign) |
-| C | `api/channels_api.py:138` | `?start=0` / `?end=0` | Milestone 0 accepted → **null dates** returned (HTTP 200, no error signal) | [#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443) | — |
+| C | `api/channels_api.py:138` | `?start=0` / `?end=0` | Milestone 0 accepted → **null dates** returned (HTTP 200, no error signal) | [#6443](https://github.com/GoogleChrome/chromium-dashboard/issues/6443) | [PR #6656](https://github.com/GoogleChrome/chromium-dashboard/pull/6656) (merged) |
 | D | `api/reviews_api.py:78` | `{"state": 0}` / `false` | Falsy value skips `Vote.is_valid_state` (`get_param`/`get_int_param` `val and …` short-circuit) → `set_vote` bare `ValueError` → **HTTP 500** instead of HTTP 400 | [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447) | [PR #6452](https://github.com/GoogleChrome/chromium-dashboard/pull/6452) (merged) |
 | E | `api/shipping_features_api.py:58` | `?mstone=0` | `get_int_arg` admits 0; handler guards only `is None` → **empty feature lists** (HTTP 200, no error signal) | _filed: pending_ | — |
 | F | `api/metricsdata.py:199` | `?num=0` | `get_int_arg` admits 0; `if num:` truthiness guard skips the `[:num]` slice → **all datapoints returned** (HTTP 200; the inverse of B) | _not filed (B-class)_ | — |
@@ -94,6 +95,10 @@ is called for a milestone that does not exist, and the server returns
 `{"0": {"stable_date": null, …}}` with HTTP 200. Chrome milestone numbers
 are 1-based; milestone 0 has no schedule data.
 Proposed fix: add `if start < 1 or end < 1: self.abort(400, msg='milestone must be >= 1')`.
+**Fixed upstream** ([PR #6656](https://github.com/GoogleChrome/chromium-dashboard/pull/6656),
+merged 2026-07-30): `do_get` now aborts with HTTP 400 when either bound is
+below 1 — the fix we proposed — with regression test
+`test_do_get__zero_milestone` covering `start=0`, `end=0`, and both.
 
 **Finding D — falsy `state` validator bypass (HTTP 500 not 400, [#6447](https://github.com/GoogleChrome/chromium-dashboard/issues/6447)).**
 `api/reviews_api.py:78` (`VotesAPI.do_post`) reads
